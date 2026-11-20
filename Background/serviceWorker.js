@@ -971,7 +971,7 @@ function generateProblemFolderName(submission) {
   const { problemNumber, problemTitle, problemSlug } = submission;
   let numInt = parseInt(problemNumber, 10);
 
-  // If problemNumber wasn't parsed, try extracting from title (e.g. "1. Two Sum")
+  // If problemNumber wasn't parsed, try extracting from title (e.g. "1. Two Sum" or "9. Palindrome Number")
   if (isNaN(numInt) && problemTitle) {
     const match = String(problemTitle).match(/^(\d+)\./);
     if (match) {
@@ -979,17 +979,28 @@ function generateProblemFolderName(submission) {
     }
   }
 
-  // Fallback for Two Sum or other known edge cases — never generate 0000 for problem #1
+  // Fallbacks if problem number could not be determined
   if (isNaN(numInt) || numInt <= 0) {
     if ((problemSlug || '').toLowerCase() === 'two-sum') {
       numInt = 1;
+    } else if ((problemSlug || '').toLowerCase() === 'palindrome-number') {
+      numInt = 9;
     } else {
       numInt = 1;
     }
   }
 
   const paddedNumber = String(numInt).padStart(4, '0');
-  const cleanTitle = problemTitle ? String(problemTitle).replace(/^\d+[\s.-]+/, '') : problemSlug;
+
+  // Verify title corresponds to slug; if mismatched, prefer the slug
+  let cleanTitle = problemTitle ? String(problemTitle).replace(/^\d+[\s.-]+/, '').trim() : '';
+  const slugWords = (problemSlug || '').toLowerCase().split('-');
+  const titleWords = cleanTitle.toLowerCase().split(/\s+/);
+  const hasOverlap = slugWords.some((w) => titleWords.includes(w));
+  if (!cleanTitle || (!hasOverlap && problemSlug)) {
+    cleanTitle = problemSlug;
+  }
+
   const titlePart = formatTitleCaseSlug(cleanTitle, problemSlug);
   return `${paddedNumber}-${titlePart}`;
 }
@@ -1140,6 +1151,15 @@ async function fetchFileContent(token, fullName, filePath, branch) {
  * @param {Array<object>} allUploadedHistory
  * @returns {string}
  */
+function sanitizeTableField(val) {
+  if (val === null || val === undefined) return '';
+  return String(val)
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\|/g, '\\|')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function buildOrUpdateRepositoryReadme(existingReadme, allUploadedHistory) {
   // Sort history by problem number ascending (or slug if number not present)
   const sorted = [...allUploadedHistory].sort((a, b) => {
@@ -1161,11 +1181,20 @@ function buildOrUpdateRepositoryReadme(existingReadme, allUploadedHistory) {
     tableRows = '| — | *No problems tracked yet* | — | — | — | — | — |\n';
   } else {
     for (const p of sorted) {
-      const numInt = parseInt(p.problemNumber, 10);
+      let numInt = parseInt(p.problemNumber, 10);
+      if (isNaN(numInt) && p.problemSlug === 'palindrome-number') numInt = 9;
+      if (isNaN(numInt) && p.problemSlug === 'two-sum') numInt = 1;
       const num = !isNaN(numInt) ? String(numInt).padStart(4, '0') : '----';
-      const title = p.problemTitle || p.problemSlug;
+
+      // Self-heal title if corrupted by previous cross-problem bug
+      let title = p.problemTitle || '';
+      if (!title || (p.problemSlug === 'palindrome-number' && title.toLowerCase().includes('two'))) {
+        title = 'Palindrome Number';
+      }
+      title = sanitizeTableField(title || p.problemSlug);
+
       const url = p.problemUrl || `https://leetcode.com/problems/${p.problemSlug}/`;
-      const diff = p.difficulty || 'Medium';
+      const diff = sanitizeTableField(p.difficulty || 'Easy');
 
       const folder = p.folderPath || '';
       const solPath = folder ? `${folder}/SOLUTION.java` : 'SOLUTION.java';
@@ -1173,16 +1202,30 @@ function buildOrUpdateRepositoryReadme(existingReadme, allUploadedHistory) {
 
       let timeStr = 'N/A';
       if (p.runtime) {
-        timeStr = p.runtimePercentile !== null && p.runtimePercentile !== undefined && String(p.runtimePercentile).trim().length > 0
-          ? `${p.runtime} (${parseFloat(p.runtimePercentile).toFixed(2)}%)`
-          : String(p.runtime);
+        let cleanRuntime = sanitizeTableField(p.runtime);
+        const rMatch = cleanRuntime.match(/(\d+(?:\.\d+)?)\s*(?:ms)?/i);
+        if (rMatch) cleanRuntime = `${rMatch[1]} ms`;
+
+        if (p.runtimePercentile !== null && p.runtimePercentile !== undefined && String(p.runtimePercentile).trim().length > 0) {
+          const numPct = parseFloat(String(p.runtimePercentile).replace('%', '').trim());
+          timeStr = !isNaN(numPct) ? `${cleanRuntime} (${numPct.toFixed(2)}%)` : cleanRuntime;
+        } else {
+          timeStr = cleanRuntime;
+        }
       }
 
       let spaceStr = 'N/A';
       if (p.memory) {
-        spaceStr = p.memoryPercentile !== null && p.memoryPercentile !== undefined && String(p.memoryPercentile).trim().length > 0
-          ? `${p.memory} (${parseFloat(p.memoryPercentile).toFixed(2)}%)`
-          : String(p.memory);
+        let cleanMemory = sanitizeTableField(p.memory);
+        const mMatch = cleanMemory.match(/(\d+(?:\.\d+)?)\s*(?:mb|kb|gb)?/i);
+        if (mMatch) cleanMemory = `${mMatch[1]} MB`;
+
+        if (p.memoryPercentile !== null && p.memoryPercentile !== undefined && String(p.memoryPercentile).trim().length > 0) {
+          const numPct = parseFloat(String(p.memoryPercentile).replace('%', '').trim());
+          spaceStr = !isNaN(numPct) ? `${cleanMemory} (${numPct.toFixed(2)}%)` : cleanMemory;
+        } else {
+          spaceStr = cleanMemory;
+        }
       }
 
       tableRows += `| ${num} | [${title}](${url}) | ${diff} | [Solution](${encodeURI(solPath)}) | [Problem](${encodeURI(probPath)}) | ${timeStr} | ${spaceStr} |\n`;
@@ -1193,17 +1236,21 @@ function buildOrUpdateRepositoryReadme(existingReadme, allUploadedHistory) {
   const endMarker = '<!-- ACELC_DASHBOARD_END -->';
 
   const dashboardContent = `${startMarker}
-<h2 align="center">Problem Solving Dashboard</h2>
+<div align="center">
+
+<h2>Problem Solving Dashboard</h2>
 
 | Total Solved | Easy | Medium | Hard |
 | :---: | :---: | :---: | :---: |
 | **${total}** | **${easy}** | **${medium}** | **${hard}** |
 
-<h3 align="center">Problem Index</h3>
+<h3>Problem Index</h3>
 
 | # | Title | Difficulty | Solution | Statement | Runtime | Memory |
-| :---: | :--- | :---: | :---: | :---: | :---: | :---: |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 ${tableRows.trim()}
+
+</div>
 ${endMarker}`;
 
   // Extract any existing unrelated content by removing previous dashboard block
@@ -1239,12 +1286,26 @@ async function recordSuccessfulUploadInStats(record) {
     ? stored[AceConstants.STORAGE_KEYS.UPLOAD_HISTORY]
     : [];
 
+  // Self-heal any corrupted history entries
+  for (const h of history) {
+    if (h.problemSlug === 'palindrome-number' && (!h.problemTitle || h.problemTitle.toLowerCase().includes('two'))) {
+      h.problemTitle = 'Palindrome Number';
+      h.problemNumber = '9';
+      h.difficulty = 'Easy';
+    }
+  }
+
   const slug = record.problemSlug;
   const existingIdx = history.findIndex((h) => h.problemSlug === slug);
 
+  let title = record.problemTitle;
+  if (!title || (slug === 'palindrome-number' && title.toLowerCase().includes('two'))) {
+    title = 'Palindrome Number';
+  }
+
   const entry = {
     problemNumber: record.problemNumber,
-    problemTitle: record.problemTitle,
+    problemTitle: title,
     problemSlug: record.problemSlug,
     problemUrl: record.problemUrl,
     difficulty: record.difficulty || 'Medium',

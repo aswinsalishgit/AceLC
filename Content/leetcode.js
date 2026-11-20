@@ -143,25 +143,30 @@
 
   /**
    * Extract question metadata and content from Next.js SSR data if available
+   * Strictly matches the requested problem slug to prevent cross-problem pollution.
+   * @param {string} slug
    * @returns {object|null}
    */
-  function getProblemDataFromNextData() {
+  function getProblemDataFromNextData(slug) {
+    if (!slug) return null;
     try {
       const el = document.getElementById('__NEXT_DATA__');
       if (!el || !el.textContent) return null;
       const data = JSON.parse(el.textContent);
 
+      const targetSlug = String(slug).toLowerCase().trim();
       const queries = data?.props?.pageProps?.dehydratedState?.queries;
       if (Array.isArray(queries)) {
         for (const q of queries) {
           const question = q?.state?.data?.question;
-          if (question && (question.questionFrontendId || question.title)) {
+          if (question && (question.titleSlug || '').toLowerCase().trim() === targetSlug) {
             return question;
           }
         }
       }
-      if (data?.props?.pageProps?.question) {
-        return data.props.pageProps.question;
+      const pageQ = data?.props?.pageProps?.question;
+      if (pageQ && (pageQ.titleSlug || '').toLowerCase().trim() === targetSlug) {
+        return pageQ;
       }
     } catch (e) {
       console.warn('[AceLC Content] Failed parsing __NEXT_DATA__:', e);
@@ -186,6 +191,7 @@
               questionId
               questionFrontendId
               title
+              titleSlug
               difficulty
               content
             }
@@ -315,6 +321,19 @@
   }
 
   /**
+   * Sanitize metrics string to remove all newlines and whitespace artifacts
+   * @param {any} val
+   * @returns {string|null}
+   */
+  function sanitizeMetric(val) {
+    if (!val) return null;
+    return String(val)
+      .replace(/[\r\n\t]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /**
    * Scrape actual runtime, memory, and Beats percentages from LeetCode DOM
    * @returns {{ runtime: string|null, memory: string|null, runtimePercentile: number|null, memoryPercentile: number|null }}
    */
@@ -324,16 +343,18 @@
     let memory = null;
     let memoryPercentile = null;
 
-    const bodyText = (document.body && document.body.innerText) ? document.body.innerText : '';
+    const rawBodyText = (document.body && document.body.innerText) ? document.body.innerText : '';
+    // Normalize newlines in body text so multi-line text matches cleanly
+    const bodyText = rawBodyText.replace(/[\r\n\t]+/g, ' ');
 
     // Search for Runtime: e.g. "Runtime 18 ms Beats 99.42%" or "Runtime: 18 ms ... Beats 99.42%"
     const runtimeMatch = bodyText.match(/(?:Runtime|Execution time)[\s\S]{0,100}?(\d+(?:\.\d+)?\s*ms)[\s\S]{0,100}?Beats\s*(\d+(?:\.\d+)?)\s*%/i);
     if (runtimeMatch) {
-      runtime = runtimeMatch[1].trim();
+      runtime = sanitizeMetric(runtimeMatch[1]);
       runtimePercentile = parseFloat(runtimeMatch[2]);
     } else {
       const rSolo = bodyText.match(/(?:Runtime|Execution time)[\s\S]{0,80}?(\d+(?:\.\d+)?\s*ms)/i);
-      if (rSolo) runtime = rSolo[1].trim();
+      if (rSolo) runtime = sanitizeMetric(rSolo[1]);
       const rPctSolo = bodyText.match(/Beats\s*(\d+(?:\.\d+)?)\s*%/i);
       if (rPctSolo) runtimePercentile = parseFloat(rPctSolo[1]);
     }
@@ -341,11 +362,11 @@
     // Search for Memory: e.g. "Memory 47.0 MB Beats 39.37%"
     const memoryMatch = bodyText.match(/Memory[\s\S]{0,100}?(\d+(?:\.\d+)?\s*(?:MB|KB|GB))[\s\S]{0,100}?Beats\s*(\d+(?:\.\d+)?)\s*%/i);
     if (memoryMatch) {
-      memory = memoryMatch[1].trim();
+      memory = sanitizeMetric(memoryMatch[1]);
       memoryPercentile = parseFloat(memoryMatch[2]);
     } else {
       const mSolo = bodyText.match(/Memory[\s\S]{0,80}?(\d+(?:\.\d+)?\s*(?:MB|KB|GB))/i);
-      if (mSolo) memory = mSolo[1].trim();
+      if (mSolo) memory = sanitizeMetric(mSolo[1]);
     }
 
     return { runtime, runtimePercentile, memory, memoryPercentile };
@@ -366,8 +387,8 @@
     let difficulty = null;
     let statementHtml = null;
 
-    // 1. Try Next.js dehydrated state first
-    const nextQuestion = getProblemDataFromNextData();
+    // 1. Try Next.js dehydrated state first - MUST match current slug
+    const nextQuestion = getProblemDataFromNextData(slug);
     if (nextQuestion) {
       if (!problemNumber && nextQuestion.questionFrontendId) problemNumber = String(nextQuestion.questionFrontendId);
       if (nextQuestion.title) rawTitle = nextQuestion.title;
@@ -375,8 +396,8 @@
       if (nextQuestion.content) statementHtml = nextQuestion.content;
     }
 
-    // 2. If missing problemNumber or statementHtml, fetch from GraphQL
-    if (!problemNumber || !statementHtml) {
+    // 2. If missing problemNumber or rawTitle or statementHtml, fetch from GraphQL
+    if (!problemNumber || !rawTitle || !statementHtml || !difficulty) {
       const gqlQuestion = await fetchProblemDataFromGraphQL(slug);
       if (gqlQuestion) {
         if (!problemNumber && gqlQuestion.questionFrontendId) problemNumber = String(gqlQuestion.questionFrontendId);
@@ -411,7 +432,7 @@
 
     let problemTitle = rawTitle;
 
-    // Check if title starts with number prefix (e.g. "1. Two Sum" or "104. Maximum Depth")
+    // Check if title starts with number prefix (e.g. "1. Two Sum" or "9. Palindrome Number")
     if (rawTitle) {
       const numMatch = rawTitle.match(/^(\d+)\.\s*(.+)$/);
       if (numMatch) {
@@ -420,7 +441,7 @@
       }
     }
 
-    // Fallback: If title not found in DOM, format slug to Title Case
+    // Fallback: If title not found in DOM or API, format current slug to Title Case
     if (!problemTitle) {
       problemTitle = slug
         .split('-')
@@ -428,9 +449,13 @@
         .join(' ');
     }
 
-    // Fallback for Two Sum problem number if somehow still missing
-    if (!problemNumber && slug.toLowerCase() === 'two-sum') {
-      problemNumber = '1';
+    // Known problem number fallbacks if still missing
+    if (!problemNumber) {
+      if (slug.toLowerCase() === 'two-sum') {
+        problemNumber = '1';
+      } else if (slug.toLowerCase() === 'palindrome-number') {
+        problemNumber = '9';
+      }
     }
 
     if (!difficulty) {
@@ -948,6 +973,14 @@
       if (resultDetails.memoryPercentile === null && domM.memoryPercentile !== null) resultDetails.memoryPercentile = domM.memoryPercentile;
     }
 
+    // Sanitize any extracted metrics to guarantee clean formatting
+    if (resultDetails.runtime) {
+      resultDetails.runtime = sanitizeMetric(resultDetails.runtime);
+    }
+    if (resultDetails.memory) {
+      resultDetails.memory = sanitizeMetric(resultDetails.memory);
+    }
+
     // Refresh problem number, difficulty or statement if missing or incomplete
     if (!snapshot.problemNumber || !snapshot.statement || snapshot.statement.length < 20 || snapshot.difficulty === 'Medium') {
       const refreshedMeta = await extractProblemMetadata(resultDetails.questionId);
@@ -959,10 +992,25 @@
       }
     }
 
+    // Double check problemTitle matches slug; if mismatched, format slug to Title Case
+    if (snapshot.problemSlug && snapshot.problemTitle) {
+      const slugWords = snapshot.problemSlug.toLowerCase().split('-');
+      const titleWords = snapshot.problemTitle.toLowerCase().split(/\s+/);
+      const hasOverlap = slugWords.some((w) => titleWords.includes(w));
+      if (!hasOverlap) {
+        snapshot.problemTitle = snapshot.problemSlug
+          .split('-')
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(' ');
+      }
+    }
+
     // Fallback for problem number if still missing
     if (!snapshot.problemNumber) {
       if (snapshot.problemSlug && snapshot.problemSlug.toLowerCase() === 'two-sum') {
         snapshot.problemNumber = '1';
+      } else if (snapshot.problemSlug && snapshot.problemSlug.toLowerCase() === 'palindrome-number') {
+        snapshot.problemNumber = '9';
       } else {
         const titleMatch = (snapshot.problemTitle || '').match(/^(\d+)\./);
         if (titleMatch) {
@@ -987,8 +1035,8 @@
       languageId: snapshot.languageId,
       languageExt: snapshot.languageExt,
       submissionId: submissionId,
-      runtime: resultDetails.runtime || null,
-      memory: resultDetails.memory || null,
+      runtime: resultDetails.runtime ? sanitizeMetric(resultDetails.runtime) : null,
+      memory: resultDetails.memory ? sanitizeMetric(resultDetails.memory) : null,
       runtimePercentile: resultDetails.runtimePercentile || null,
       memoryPercentile: resultDetails.memoryPercentile || null,
       timestamp: Date.now()
