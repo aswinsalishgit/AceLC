@@ -912,6 +912,124 @@ async function setDestinationFolders(foldersArray) {
 }
 
 /**
+ * =========================================================================
+ * SUBMISSION MANAGEMENT (PHASE 5)
+ * =========================================================================
+ */
+
+// In-memory cache for background deduplication: submissionKey -> timestamp
+const processedSubmissionsCache = new Map();
+
+/**
+ * Handle and persist verified accepted submissions detected from LeetCode
+ * @param {object} submission 
+ * @returns {Promise<{success: boolean, duplicate?: boolean, submission?: object, error?: string}>}
+ */
+async function handleAcceptedSubmission(submission) {
+  if (!submission || typeof submission !== 'object') {
+    return { success: false, error: 'Invalid submission payload.' };
+  }
+
+  const { problemTitle, problemSlug, code, language, submissionId } = submission;
+
+  if (!problemSlug || typeof problemSlug !== 'string') {
+    return { success: false, error: 'Submission missing valid problem slug.' };
+  }
+
+  if (!code || typeof code !== 'string' || code.trim().length === 0) {
+    return { success: false, error: 'Submission missing valid source code.' };
+  }
+
+  if (!language || typeof language !== 'string') {
+    return { success: false, error: 'Submission missing valid programming language.' };
+  }
+
+  const now = Date.now();
+
+  // Purge expired entries (> 5 minutes old)
+  for (const [key, timestamp] of processedSubmissionsCache.entries()) {
+    if (now - timestamp > 300000) {
+      processedSubmissionsCache.delete(key);
+    }
+  }
+
+  // Generate deduplication key
+  const dedupKey = submissionId
+    ? `id_${submissionId}`
+    : `slug_${problemSlug}_${code.length}_${Math.floor(now / 30000)}`;
+
+  if (processedSubmissionsCache.has(dedupKey)) {
+    const lastSeen = processedSubmissionsCache.get(dedupKey);
+    if (now - lastSeen < 60000) {
+      console.log(`[AceLC Background] Duplicate submission ignored (${dedupKey}).`);
+      return {
+        success: true,
+        duplicate: true,
+        message: 'Duplicate accepted submission already recorded.'
+      };
+    }
+  }
+
+  processedSubmissionsCache.set(dedupKey, now);
+
+  const submissionRecord = {
+    problemTitle: problemTitle || problemSlug,
+    problemSlug: problemSlug,
+    problemUrl: submission.problemUrl || `https://leetcode.com/problems/${problemSlug}/`,
+    problemNumber: submission.problemNumber || null,
+    code: code,
+    language: language,
+    languageId: submission.languageId || language.toLowerCase(),
+    languageExt: submission.languageExt || '.txt',
+    submissionId: submissionId || null,
+    runtime: submission.runtime || null,
+    memory: submission.memory || null,
+    detectedAt: now
+  };
+
+  // Persist as pending submission for Phase 6 destination selection and upload
+  await chrome.storage.local.set({
+    [AceConstants.STORAGE_KEYS.PENDING_SUBMISSION]: submissionRecord
+  });
+
+  console.log('[AceLC Background] ========================================');
+  console.log('[AceLC Background] Accepted LeetCode Submission Received:');
+  console.log(`  Problem: [${submissionRecord.problemNumber || '?'}] ${submissionRecord.problemTitle} (${submissionRecord.problemSlug})`);
+  console.log(`  Language: ${submissionRecord.language} (${submissionRecord.languageExt})`);
+  console.log(`  Code length: ${submissionRecord.code.length} characters`);
+  if (submissionRecord.submissionId) console.log(`  Submission ID: ${submissionRecord.submissionId}`);
+  if (submissionRecord.runtime) console.log(`  Runtime: ${submissionRecord.runtime}`);
+  if (submissionRecord.memory) console.log(`  Memory: ${submissionRecord.memory}`);
+  console.log(`  URL: ${submissionRecord.problemUrl}`);
+  console.log('[AceLC Background] ========================================');
+
+  return {
+    success: true,
+    submission: submissionRecord,
+    message: 'Accepted submission successfully captured and saved.'
+  };
+}
+
+/**
+ * Retrieve the current pending submission from storage
+ */
+async function getPendingSubmission() {
+  const result = await chrome.storage.local.get(AceConstants.STORAGE_KEYS.PENDING_SUBMISSION);
+  return {
+    success: true,
+    submission: result[AceConstants.STORAGE_KEYS.PENDING_SUBMISSION] || null
+  };
+}
+
+/**
+ * Clear the pending submission from storage
+ */
+async function clearPendingSubmission() {
+  await chrome.storage.local.remove(AceConstants.STORAGE_KEYS.PENDING_SUBMISSION);
+  return { success: true };
+}
+
+/**
  * Handle runtime messages from popup and other components
  */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -993,12 +1111,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Submission actions (Phase 5)
+  if (message.action === AceConstants.MESSAGES.SUBMISSION_DETECTED) {
+    handleAcceptedSubmission(message.submission).then(sendResponse);
+    return true;
+  }
+
+  if (message.action === AceConstants.MESSAGES.GET_PENDING_SUBMISSION) {
+    getPendingSubmission().then(sendResponse);
+    return true;
+  }
+
+  if (message.action === AceConstants.MESSAGES.CLEAR_PENDING_SUBMISSION) {
+    clearPendingSubmission().then(sendResponse);
+    return true;
+  }
+
   if (message.action === AceConstants.MESSAGES.GET_STATUS) {
     sendResponse({
       success: true,
       name: AceConstants.EXTENSION_NAME,
       version: AceConstants.VERSION,
-      phase: 'Phase 4: Repository Folder Management'
+      phase: 'Phase 5: LeetCode Submission Detection'
     });
     return false;
   }

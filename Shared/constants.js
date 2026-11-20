@@ -50,11 +50,52 @@ const AceConstants = Object.freeze({
     REMOVE_DESTINATION_FOLDER: 'ACE_REMOVE_DESTINATION_FOLDER',
     SET_DESTINATION_FOLDERS: 'ACE_SET_DESTINATION_FOLDERS',
 
-    // Core actions
+    // Submission actions (Phase 5)
     SUBMISSION_DETECTED: 'ACE_SUBMISSION_DETECTED',
+    GET_PENDING_SUBMISSION: 'ACE_GET_PENDING_SUBMISSION',
+    CLEAR_PENDING_SUBMISSION: 'ACE_CLEAR_PENDING_SUBMISSION',
+
+    // Core actions
     GET_STATUS: 'ACE_GET_STATUS',
     UPLOAD_SOLUTION: 'ACE_UPLOAD_SOLUTION'
   },
+
+  // In-page Bridge Event names for main-world communication
+  BRIDGE_EVENTS: {
+    SUBMISSION_INITIATED: 'ACE_BRIDGE_SUBMISSION_INITIATED',
+    SUBMISSION_ID_ASSIGNED: 'ACE_BRIDGE_SUBMISSION_ID_ASSIGNED',
+    SUBMISSION_PENDING: 'ACE_BRIDGE_SUBMISSION_PENDING',
+    SUBMISSION_ACCEPTED: 'ACE_BRIDGE_SUBMISSION_ACCEPTED',
+    SUBMISSION_FAILED: 'ACE_BRIDGE_SUBMISSION_FAILED',
+    REQUEST_MONACO_CODE: 'ACE_BRIDGE_REQUEST_MONACO_CODE',
+    RESPONSE_MONACO_CODE: 'ACE_BRIDGE_RESPONSE_MONACO_CODE',
+    URL_CHANGED: 'ACE_BRIDGE_URL_CHANGED'
+  },
+
+  // LeetCode Programming Language mappings (normalized id -> display name & extension)
+  LANGUAGES: Object.freeze({
+    cpp: { id: 'cpp', name: 'C++', ext: '.cpp' },
+    java: { id: 'java', name: 'Java', ext: '.java' },
+    python: { id: 'python', name: 'Python', ext: '.py' },
+    python3: { id: 'python3', name: 'Python3', ext: '.py' },
+    c: { id: 'c', name: 'C', ext: '.c' },
+    csharp: { id: 'csharp', name: 'C#', ext: '.cs' },
+    javascript: { id: 'javascript', name: 'JavaScript', ext: '.js' },
+    typescript: { id: 'typescript', name: 'TypeScript', ext: '.ts' },
+    php: { id: 'php', name: 'PHP', ext: '.php' },
+    swift: { id: 'swift', name: 'Swift', ext: '.swift' },
+    kotlin: { id: 'kotlin', name: 'Kotlin', ext: '.kt' },
+    dart: { id: 'dart', name: 'Dart', ext: '.dart' },
+    golang: { id: 'golang', name: 'Go', ext: '.go' },
+    go: { id: 'golang', name: 'Go', ext: '.go' },
+    ruby: { id: 'ruby', name: 'Ruby', ext: '.rb' },
+    scala: { id: 'scala', name: 'Scala', ext: '.scala' },
+    rust: { id: 'rust', name: 'Rust', ext: '.rs' },
+    racket: { id: 'racket', name: 'Racket', ext: '.rkt' },
+    erlang: { id: 'erlang', name: 'Erlang', ext: '.erl' },
+    elixir: { id: 'elixir', name: 'Elixir', ext: '.ex' },
+    pypy3: { id: 'pypy3', name: 'PyPy3', ext: '.py' }
+  }),
 
   // GitHub OAuth & REST API configuration
   GITHUB: {
@@ -74,7 +115,78 @@ const AceConstants = Object.freeze({
   }
 });
 
+/**
+ * Normalize and retrieve language details from a raw language identifier or UI text
+ * @param {string} raw
+ * @returns {{ id: string, name: string, ext: string }}
+ */
+function normalizeAceLanguage(raw) {
+  if (!raw || typeof raw !== 'string') {
+    return { id: 'unknown', name: 'Text', ext: '.txt' };
+  }
+
+  const clean = raw.trim().toLowerCase().replace(/\s+/g, '');
+
+  // Direct lookup
+  if (AceConstants.LANGUAGES[clean]) {
+    return AceConstants.LANGUAGES[clean];
+  }
+
+  // Name matching
+  for (const key of Object.keys(AceConstants.LANGUAGES)) {
+    const lang = AceConstants.LANGUAGES[key];
+    if (lang.name.toLowerCase().replace(/\s+/g, '') === clean) {
+      return lang;
+    }
+  }
+
+  // Common UI aliases
+  if (clean.includes('python3') || clean === 'py3') return AceConstants.LANGUAGES.python3;
+  if (clean.includes('python') || clean === 'py') return AceConstants.LANGUAGES.python;
+  if (clean === 'c++' || clean === 'cpp') return AceConstants.LANGUAGES.cpp;
+  if (clean === 'c#' || clean === 'csharp' || clean === 'cs') return AceConstants.LANGUAGES.csharp;
+  if (clean.includes('javascript') || clean === 'js') return AceConstants.LANGUAGES.javascript;
+  if (clean.includes('typescript') || clean === 'ts') return AceConstants.LANGUAGES.typescript;
+  if (clean.includes('golang') || clean === 'go') return AceConstants.LANGUAGES.golang;
+  if (clean === 'c') return AceConstants.LANGUAGES.c;
+  if (clean === 'java') return AceConstants.LANGUAGES.java;
+  if (clean === 'rust' || clean === 'rs') return AceConstants.LANGUAGES.rust;
+  if (clean === 'kotlin' || clean === 'kt') return AceConstants.LANGUAGES.kotlin;
+  if (clean === 'swift') return AceConstants.LANGUAGES.swift;
+  if (clean === 'ruby' || clean === 'rb') return AceConstants.LANGUAGES.ruby;
+  if (clean === 'php') return AceConstants.LANGUAGES.php;
+  if (clean === 'dart') return AceConstants.LANGUAGES.dart;
+  if (clean === 'scala') return AceConstants.LANGUAGES.scala;
+
+  return { id: clean, name: raw.trim(), ext: '.txt' };
+}
+
+/**
+ * Extract problem slug from a LeetCode problem URL path
+ * @param {string} pathname
+ * @returns {string|null}
+ */
+function extractAceProblemSlug(pathname) {
+  if (!pathname || typeof pathname !== 'string') return null;
+  const match = pathname.match(/\/problems\/([^/]+)/);
+  if (match && match[1] && match[1].toLowerCase() !== 'all') {
+    return match[1].toLowerCase();
+  }
+  return null;
+}
+
 // Expose on globalThis so it is accessible in all extension execution contexts
 if (typeof globalThis !== 'undefined') {
   globalThis.AceConstants = AceConstants;
+  globalThis.normalizeAceLanguage = normalizeAceLanguage;
+  globalThis.extractAceProblemSlug = extractAceProblemSlug;
+}
+
+// Support CommonJS for testing environments
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    AceConstants,
+    normalizeAceLanguage,
+    extractAceProblemSlug
+  };
 }

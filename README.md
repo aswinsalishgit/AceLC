@@ -10,9 +10,9 @@ Built by [CodeGab](https://github.com/CodeGab) to make tracking and managing cod
 - **GitHub Authentication** - Connect and disconnect GitHub accounts securely using OAuth Device Flow.
 - **Repository Management** - Retrieve, select existing, or create new public and private GitHub repositories.
 - **Destination Folder Management** - Configure multiple destination folders per repository, with support for custom paths and existing GitHub directories.
+- **LeetCode Submission Detection** - Detect accepted submissions, snapshot source code at submit time, identify languages, and extract problem metadata.
 - **Extension Popup** - Multi-state interface for authorization codes, approval checks, repository selection, folder configuration, and user profile display.
 - **Options Management** - Dedicated settings page for OAuth application configuration and destination repository settings.
-- **LeetCode Detection Hook** - Content script targeting LeetCode problem pages.
 - **Shared Architecture** - Unified constants and messaging protocol across components.
 
 ## Tech Stack
@@ -35,7 +35,7 @@ To load the extension locally in Google Chrome:
 
 ## Project Status
 
-AceLC is currently under development. Phase 4 (Repository Folder Management) is complete.
+AceLC is currently under development. Phase 5 (LeetCode Submission Detection) is complete.
 
 ## Contributing
 

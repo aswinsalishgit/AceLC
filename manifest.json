@@ -8,7 +8,8 @@
   ],
   "host_permissions": [
     "https://github.com/*",
-    "https://api.github.com/*"
+    "https://api.github.com/*",
+    "https://leetcode.com/*"
   ],
   "action": {
     "default_popup": "Popup/popup.html",
@@ -31,6 +32,26 @@
         "Content/leetcode.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://leetcode.com/problems/*"
+      ],
+      "js": [
+        "Content/pageBridge.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "Content/pageBridge.js"
+      ],
+      "matches": [
+        "https://leetcode.com/*"
+      ]
     }
   ]
 }
