@@ -818,3 +818,131 @@ body {
   font-size: 11px;
   color: #9ca3af;
 }
+
+/* =========================================================================
+   UPLOAD RESULTS & OVERWRITE PROMPT (PHASE 7)
+   ========================================================================= */
+
+.upload-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.upload-summary-success {
+  font-weight: 700;
+  color: #15803d;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+
+.upload-result-row {
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: #f8fafc;
+  font-size: 11px;
+  color: #334155;
+  word-break: break-all;
+}
+
+.upload-result-link {
+  color: #2563eb;
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.upload-result-link:hover {
+  text-decoration: underline;
+}
+
+.upload-result-skipped {
+  color: #64748b;
+  background: #f1f5f9;
+}
+
+.upload-result-failed {
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+/* Overwrite confirmation prompt */
+.overwrite-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.overwrite-intro {
+  font-weight: 600;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fef3c7;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.overwrite-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: #f8fafc;
+}
+
+.overwrite-row.overwrite-decided {
+  opacity: 0.65;
+}
+
+.overwrite-path {
+  flex: 1;
+  font-size: 11px;
+  color: #334155;
+  word-break: break-all;
+  min-width: 0;
+}
+
+.overwrite-btn-action {
+  font-size: 11px;
+  font-weight: 600;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.overwrite-btn-yes {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.overwrite-btn-yes:hover {
+  background: #b91c1c;
+}
+
+.overwrite-btn-skip {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.overwrite-btn-skip:hover {
+  background: #cbd5e1;
+}
+
+.overwrite-btn-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.overwrite-success-note {
+  font-size: 11px;
+  color: #15803d;
+  font-style: italic;
+}

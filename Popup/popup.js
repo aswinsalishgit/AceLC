@@ -769,6 +769,7 @@ document.addEventListener('DOMContentLoaded', () => {
       destConfirmBtn.disabled = true;
       destConfirmBtn.textContent = 'Confirming...';
 
+      // Step 1: Confirm destination selection (Phase 6)
       chrome.runtime.sendMessage(
         {
           action: AceConstants.MESSAGES.CONFIRM_DESTINATION_SELECTION,
@@ -777,22 +778,237 @@ document.addEventListener('DOMContentLoaded', () => {
             selectedFolders: selectedFolders
           }
         },
-        (response) => {
-          destConfirmBtn.disabled = false;
-          destConfirmBtn.textContent = 'Upload Solution';
-
-          if (response && response.success) {
-            showToast('Destination confirmed! Solution queued for upload.');
-            loadPendingQueue();
-          } else {
-            const err = (response && response.error) || 'Failed to confirm destination selection.';
+        (confirmResponse) => {
+          if (chrome.runtime.lastError || !confirmResponse || !confirmResponse.success) {
+            destConfirmBtn.disabled = false;
+            destConfirmBtn.textContent = 'Upload Solution';
+            const err = (confirmResponse && confirmResponse.error) || 'Failed to confirm destination selection.';
             showToast(err, true);
             destValidationMsg.textContent = err;
             destValidationMsg.classList.remove('hidden');
+            return;
           }
+
+          const confirmedRecord = confirmResponse.confirmedSubmission;
+          if (!confirmedRecord) {
+            destConfirmBtn.disabled = false;
+            destConfirmBtn.textContent = 'Upload Solution';
+            showToast('Confirmed but could not start upload.', true);
+            loadPendingQueue();
+            return;
+          }
+
+          // Step 2: Trigger upload (Phase 7)
+          destConfirmBtn.textContent = 'Uploading...';
+          startUpload(confirmedRecord.uid, {});
         }
       );
     });
+  }
+
+  /**
+   * Initiate a GitHub solution upload for a confirmed submission.
+   * Handles overwrite confirmation inline when a file already exists.
+   * @param {string} uid
+   * @param {object} overwriteDecisions  { folderPath: 'overwrite'|'skip' }
+   */
+  function startUpload(uid, overwriteDecisions) {
+    destConfirmBtn.disabled = true;
+    destConfirmBtn.textContent = 'Uploading...';
+
+    chrome.runtime.sendMessage(
+      {
+        action: AceConstants.MESSAGES.UPLOAD_SOLUTION,
+        payload: {
+          submissionUid: uid,
+          overwriteDecisions: overwriteDecisions || {}
+        }
+      },
+      (response) => {
+        destConfirmBtn.disabled = false;
+        destConfirmBtn.textContent = 'Upload Solution';
+
+        if (chrome.runtime.lastError || !response) {
+          showToast('Upload failed: could not reach background worker.', true);
+          loadPendingQueue();
+          return;
+        }
+
+        // Handle overwrite confirmation needed for one or more folders
+        if (response.needsOverwriteConfirmation && Array.isArray(response.results)) {
+          const conflicting = response.results.filter((r) => r.needsOverwriteConfirmation);
+          const succeededSoFar = response.results.filter((r) => r.success && !r.needsOverwriteConfirmation);
+
+          // Show inline overwrite prompt for each conflicting folder
+          showOverwritePrompt(uid, conflicting, succeededSoFar, overwriteDecisions);
+          return;
+        }
+
+        if (!response.success && !response.results) {
+          showToast(response.error || 'Upload failed.', true);
+          loadPendingQueue();
+          return;
+        }
+
+        // Render upload results
+        renderUploadResults(response);
+        loadPendingQueue();
+      }
+    );
+  }
+
+  /**
+   * Show inline overwrite confirmation prompt for conflicting files.
+   * Resumes the upload once the user decides for all conflicts.
+   * @param {string} uid
+   * @param {Array} conflicting  — results with needsOverwriteConfirmation
+   * @param {Array} succeeded    — results that already succeeded
+   * @param {object} existingDecisions
+   */
+  function showOverwritePrompt(uid, conflicting, succeeded, existingDecisions) {
+    if (!destValidationMsg) return;
+
+    // Build an inline decision UI inside destValidationMsg area
+    destValidationMsg.classList.remove('hidden');
+
+    const decisions = { ...existingDecisions };
+    let resolvedCount = 0;
+
+    // Create overwrite prompt container
+    const promptContainer = document.createElement('div');
+    promptContainer.className = 'overwrite-prompt';
+
+    const intro = document.createElement('p');
+    intro.className = 'overwrite-intro';
+    intro.textContent = `${conflicting.length} file(s) already exist in GitHub:`;
+    promptContainer.appendChild(intro);
+
+    for (const item of conflicting) {
+      const row = document.createElement('div');
+      row.className = 'overwrite-row';
+
+      const pathLabel = document.createElement('span');
+      pathLabel.className = 'overwrite-path';
+      pathLabel.textContent = item.filePath;
+
+      const overwriteBtn = document.createElement('button');
+      overwriteBtn.className = 'overwrite-btn-action overwrite-btn-yes';
+      overwriteBtn.textContent = 'Overwrite';
+      overwriteBtn.dataset.folder = item.folder;
+      overwriteBtn.dataset.decision = 'overwrite';
+
+      const skipBtn = document.createElement('button');
+      skipBtn.className = 'overwrite-btn-action overwrite-btn-skip';
+      skipBtn.textContent = 'Skip';
+      skipBtn.dataset.folder = item.folder;
+      skipBtn.dataset.decision = 'skip';
+
+      function handleDecision(folder, decision) {
+        decisions[folder] = decision;
+        overwriteBtn.disabled = true;
+        skipBtn.disabled = true;
+        row.classList.add('overwrite-decided');
+        pathLabel.textContent = `${item.filePath} → ${decision === 'overwrite' ? '✏️ Overwrite' : '⏭️ Skip'}`;
+        resolvedCount += 1;
+
+        // Once all conflicts are resolved, re-trigger upload
+        if (resolvedCount === conflicting.length) {
+          destValidationMsg.innerHTML = '';
+          destValidationMsg.classList.add('hidden');
+          startUpload(uid, decisions);
+        }
+      }
+
+      overwriteBtn.addEventListener('click', () => handleDecision(item.folder, 'overwrite'));
+      skipBtn.addEventListener('click', () => handleDecision(item.folder, 'skip'));
+
+      row.appendChild(pathLabel);
+      row.appendChild(overwriteBtn);
+      row.appendChild(skipBtn);
+      promptContainer.appendChild(row);
+    }
+
+    // Show already-succeeded results as well
+    if (succeeded.length > 0) {
+      const successNote = document.createElement('p');
+      successNote.className = 'overwrite-success-note';
+      successNote.textContent = `${succeeded.length} file(s) uploaded successfully so far.`;
+      promptContainer.appendChild(successNote);
+    }
+
+    destValidationMsg.innerHTML = '';
+    destValidationMsg.appendChild(promptContainer);
+  }
+
+  /**
+   * Render a summary of upload results in the destination card.
+   * @param {object} response  — from UPLOAD_SOLUTION
+   */
+  function renderUploadResults(response) {
+    if (!destValidationMsg || !response || !Array.isArray(response.results)) return;
+
+    const results = response.results;
+    const created = results.filter((r) => r.success && !r.skipped && !r.overwritten);
+    const overwritten = results.filter((r) => r.success && r.overwritten);
+    const skipped = results.filter((r) => r.success && r.skipped);
+    const failed = results.filter((r) => !r.success && !r.needsOverwriteConfirmation);
+
+    const summaryContainer = document.createElement('div');
+    summaryContainer.className = 'upload-summary';
+
+    if (created.length > 0 || overwritten.length > 0) {
+      const successHeader = document.createElement('div');
+      successHeader.className = 'upload-summary-success';
+      successHeader.textContent = `✅ Upload successful — ${response.filename || 'file'}`;
+      summaryContainer.appendChild(successHeader);
+
+      for (const r of [...created, ...overwritten]) {
+        const row = document.createElement('div');
+        row.className = 'upload-result-row';
+        const icon = r.overwritten ? '✏️' : '📄';
+        const link = document.createElement('a');
+        link.href = r.url || '#';
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = `${icon} ${r.filePath}`;
+        link.className = 'upload-result-link';
+        row.appendChild(link);
+        summaryContainer.appendChild(row);
+      }
+    }
+
+    if (skipped.length > 0) {
+      for (const r of skipped) {
+        const row = document.createElement('div');
+        row.className = 'upload-result-row upload-result-skipped';
+        row.textContent = `⏭️ Skipped (already exists): ${r.filePath}`;
+        summaryContainer.appendChild(row);
+      }
+    }
+
+    if (failed.length > 0) {
+      for (const r of failed) {
+        const row = document.createElement('div');
+        row.className = 'upload-result-row upload-result-failed';
+        row.textContent = `❌ Failed: ${r.filePath} — ${r.error || 'Unknown error'}`;
+        summaryContainer.appendChild(row);
+      }
+    }
+
+    destValidationMsg.innerHTML = '';
+    destValidationMsg.appendChild(summaryContainer);
+    destValidationMsg.classList.remove('hidden');
+
+    // Toast summary
+    if (created.length + overwritten.length > 0 && failed.length === 0) {
+      showToast(`Solution uploaded successfully!`);
+    } else if (created.length + overwritten.length > 0 && failed.length > 0) {
+      showToast(`Partial upload: ${created.length + overwritten.length} succeeded, ${failed.length} failed.`, true);
+    } else if (failed.length > 0) {
+      showToast(`Upload failed for all destinations.`, true);
+    } else if (skipped.length > 0) {
+      showToast(`Skipped ${skipped.length} file(s) — already on GitHub.`);
+    }
   }
 
   // Cancel Pending Submission Button

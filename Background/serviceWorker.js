@@ -921,6 +921,367 @@ async function setDestinationFolders(foldersArray) {
 
 /**
  * =========================================================================
+ * GITHUB SOLUTION UPLOADING (PHASE 7)
+ * =========================================================================
+ */
+
+/**
+ * Generate a consistent filename for a LeetCode solution.
+ * Format: <number>-<slug><ext>  (e.g. "1-two-sum.py")
+ * Falls back to slug-only if no problem number is available.
+ * @param {object} submission
+ * @returns {string}
+ */
+function generateSolutionFilename(submission) {
+  const { problemSlug, problemNumber, languageExt } = submission;
+  const ext = languageExt || '.txt';
+  const slug = (problemSlug || 'solution').toLowerCase().replace(/[^a-z0-9-]/g, '-');
+
+  if (problemNumber) {
+    return `${problemNumber}-${slug}${ext}`;
+  }
+  return `${slug}${ext}`;
+}
+
+/**
+ * Encode a string to Base64, preserving full Unicode characters.
+ * Uses TextEncoder + Uint8Array to handle multi-byte code points
+ * (e.g. CJK characters, emoji) that btoa alone cannot handle.
+ * @param {string} str
+ * @returns {string} Base64-encoded string
+ */
+function encodeBase64Unicode(str) {
+  const bytes = new TextEncoder().encode(str);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+/**
+ * Build the GitHub Contents API URL for a file inside a repository.
+ * @param {string} fullName  e.g. "user/my-repo"
+ * @param {string} filePath  e.g. "LeetCode/1-two-sum.py"
+ * @returns {string}
+ */
+function buildContentsUrl(fullName, filePath) {
+  const encoded = filePath.split('/').map(encodeURIComponent).join('/');
+  return `${AceConstants.GITHUB.REPOS_API_URL}/${fullName}/contents/${encoded}`;
+}
+
+/**
+ * Check whether a file already exists in the repository.
+ * Returns { exists: boolean, sha: string|null, error: string|null }
+ * @param {string} token
+ * @param {string} fullName
+ * @param {string} filePath
+ * @param {string} branch
+ */
+async function checkFileExists(token, fullName, filePath, branch) {
+  const url = `${buildContentsUrl(fullName, filePath)}?ref=${encodeURIComponent(branch)}`;
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': `Bearer ${token}`,
+        'X-GitHub-Api-Version': '2022-11-28'
+      }
+    });
+
+    if (response.status === 404) {
+      return { exists: false, sha: null, error: null };
+    }
+
+    if (response.status === 403) {
+      const data = await response.json().catch(() => ({}));
+      // Rate limit
+      if (data.message && data.message.toLowerCase().includes('rate limit')) {
+        return { exists: false, sha: null, error: 'GitHub API rate limit exceeded. Please wait and try again.' };
+      }
+      return { exists: false, sha: null, error: `GitHub API forbidden (403): ${data.message || 'Access denied.'}` };
+    }
+
+    if (!response.ok) {
+      return { exists: false, sha: null, error: `GitHub API error (${response.status}) while checking file.` };
+    }
+
+    const data = await response.json();
+    return { exists: true, sha: data.sha || null, error: null };
+  } catch (err) {
+    return { exists: false, sha: null, error: `Network error while checking file: ${err.message}` };
+  }
+}
+
+/**
+ * Upload (create or update) a single file to GitHub via the Contents API.
+ * @param {string} token
+ * @param {string} fullName  e.g. "user/repo"
+ * @param {string} filePath  e.g. "LeetCode/1-two-sum.py"
+ * @param {string} branch
+ * @param {string} content   Raw file content (not Base64)
+ * @param {string} commitMessage
+ * @param {string|null} existingSha  Pass if updating an existing file
+ * @returns {Promise<{success: boolean, url?: string, error?: string, rateLimited?: boolean}>}
+ */
+async function uploadFileToGitHub(token, fullName, filePath, branch, content, commitMessage, existingSha) {
+  const url = buildContentsUrl(fullName, filePath);
+  const body = {
+    message: commitMessage,
+    content: encodeBase64Unicode(content),
+    branch: branch
+  };
+
+  if (existingSha) {
+    body.sha = existingSha;
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'X-GitHub-Api-Version': '2022-11-28'
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (response.status === 403) {
+      const data = await response.json().catch(() => ({}));
+      if (data.message && data.message.toLowerCase().includes('rate limit')) {
+        return { success: false, rateLimited: true, error: 'GitHub API rate limit exceeded. Please wait and try again.' };
+      }
+      return { success: false, error: `GitHub API forbidden (403): ${data.message || 'Access denied.'}` };
+    }
+
+    if (response.status === 409) {
+      return { success: false, error: 'File conflict — the file was modified remotely. Please try again.' };
+    }
+
+    if (response.status === 422) {
+      const data = await response.json().catch(() => ({}));
+      return { success: false, error: `Validation error: ${data.message || 'Invalid request.'}` };
+    }
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      return { success: false, error: `GitHub API error (${response.status}): ${data.message || 'Upload failed.'}` };
+    }
+
+    const data = await response.json();
+    const fileUrl = (data.content && data.content.html_url) || null;
+    return { success: true, url: fileUrl };
+  } catch (err) {
+    return { success: false, error: `Network error during upload: ${err.message}` };
+  }
+}
+
+/**
+ * Upload an accepted submission to one or more destination folders.
+ * Returns per-folder results so partial failures are handled gracefully.
+ *
+ * @param {object} payload
+ *   {
+ *     submissionUid: string,     — matches a confirmed submission record
+ *     overwriteDecisions: object — { folderPath: 'overwrite'|'skip' }
+ *   }
+ */
+async function uploadSolution({ submissionUid, overwriteDecisions = {} }) {
+  // 1. Load confirmed submissions, repo, and token
+  const stored = await chrome.storage.local.get([
+    AceConstants.STORAGE_KEYS.CONFIRMED_SUBMISSIONS,
+    AceConstants.STORAGE_KEYS.SELECTED_REPO,
+    AceConstants.STORAGE_KEYS.AUTH_TOKEN
+  ]);
+
+  const token = stored[AceConstants.STORAGE_KEYS.AUTH_TOKEN] || null;
+  if (!token) {
+    return { success: false, error: 'Not authenticated with GitHub. Please reconnect your account.' };
+  }
+
+  const confirmedList = Array.isArray(stored[AceConstants.STORAGE_KEYS.CONFIRMED_SUBMISSIONS])
+    ? stored[AceConstants.STORAGE_KEYS.CONFIRMED_SUBMISSIONS]
+    : [];
+
+  // Locate the confirmed submission
+  const record = submissionUid
+    ? confirmedList.find((r) => r.uid === submissionUid)
+    : confirmedList[confirmedList.length - 1];
+
+  if (!record) {
+    return { success: false, error: 'No confirmed submission found to upload.' };
+  }
+
+  const repository = record.repository || stored[AceConstants.STORAGE_KEYS.SELECTED_REPO] || null;
+  if (!repository || !repository.fullName) {
+    return { success: false, error: 'No GitHub repository selected. Please select a repository.' };
+  }
+
+  const selectedFolders = Array.isArray(record.confirmedFolders) && record.confirmedFolders.length > 0
+    ? record.confirmedFolders
+    : null;
+
+  if (!selectedFolders) {
+    return { success: false, error: 'No destination folders selected for this submission.' };
+  }
+
+  const { fullName, defaultBranch } = repository;
+  const branch = defaultBranch || 'main';
+  const filename = generateSolutionFilename(record);
+
+  // Build a commit message
+  const problemRef = record.problemNumber
+    ? `[${record.problemNumber}] ${record.problemTitle}`
+    : record.problemTitle || record.problemSlug;
+  const commitMessage = `Add ${problemRef} - ${record.language}`;
+
+  console.log('[AceLC Background] ========================================');
+  console.log('[AceLC Background] Starting solution upload:');
+  console.log(`  Filename: ${filename}`);
+  console.log(`  Repository: ${fullName} (branch: ${branch})`);
+  console.log(`  Destinations: ${JSON.stringify(selectedFolders)}`);
+  console.log('[AceLC Background] ========================================');
+
+  const results = [];
+  let anySucceeded = false;
+
+  // 2. Upload to each selected folder
+  for (const folder of selectedFolders) {
+    const normalizedFolder = folder.replace(/\/+$/, '').replace(/^\/+/, '');
+    const filePath = normalizedFolder ? `${normalizedFolder}/${filename}` : filename;
+
+    // 2a. Check if the file already exists
+    const existCheck = await checkFileExists(token, fullName, filePath, branch);
+    if (existCheck.error) {
+      results.push({
+        folder,
+        filePath,
+        success: false,
+        error: existCheck.error,
+        skipped: false
+      });
+      continue;
+    }
+
+    // 2b. If file exists, determine overwrite decision
+    if (existCheck.exists) {
+      const decision = overwriteDecisions[folder] || null;
+
+      if (!decision) {
+        // No decision yet — ask the caller to prompt the user
+        results.push({
+          folder,
+          filePath,
+          success: false,
+          needsOverwriteConfirmation: true,
+          existingSha: existCheck.sha,
+          error: null,
+          skipped: false
+        });
+        continue;
+      }
+
+      if (decision === 'skip') {
+        results.push({
+          folder,
+          filePath,
+          success: true,
+          skipped: true,
+          error: null
+        });
+        anySucceeded = true;
+        console.log(`[AceLC Background] Skipped existing file: ${filePath}`);
+        continue;
+      }
+
+      // decision === 'overwrite': pass the SHA to trigger an update
+      const uploadResult = await uploadFileToGitHub(
+        token, fullName, filePath, branch,
+        record.code, commitMessage, existCheck.sha
+      );
+
+      results.push({
+        folder,
+        filePath,
+        success: uploadResult.success,
+        overwritten: uploadResult.success,
+        url: uploadResult.url || null,
+        error: uploadResult.success ? null : uploadResult.error,
+        rateLimited: uploadResult.rateLimited || false,
+        skipped: false
+      });
+
+      if (uploadResult.success) {
+        anySucceeded = true;
+        console.log(`[AceLC Background] Overwritten: ${filePath}`);
+      } else {
+        console.warn(`[AceLC Background] Overwrite failed for ${filePath}: ${uploadResult.error}`);
+      }
+      continue;
+    }
+
+    // 2c. File does not exist — create it
+    const uploadResult = await uploadFileToGitHub(
+      token, fullName, filePath, branch,
+      record.code, commitMessage, null
+    );
+
+    results.push({
+      folder,
+      filePath,
+      success: uploadResult.success,
+      url: uploadResult.url || null,
+      error: uploadResult.success ? null : uploadResult.error,
+      rateLimited: uploadResult.rateLimited || false,
+      skipped: false
+    });
+
+    if (uploadResult.success) {
+      anySucceeded = true;
+      console.log(`[AceLC Background] Uploaded: ${filePath}`);
+    } else {
+      console.warn(`[AceLC Background] Upload failed for ${filePath}: ${uploadResult.error}`);
+    }
+  }
+
+  // 3. If at least one succeeded and no folder is still waiting for overwrite
+  //    confirmation, remove this record from confirmed submissions list.
+  const needsConfirmation = results.some((r) => r.needsOverwriteConfirmation);
+
+  if (!needsConfirmation) {
+    const updatedConfirmed = confirmedList.filter((r) => r.uid !== record.uid);
+    await chrome.storage.local.set({
+      [AceConstants.STORAGE_KEYS.CONFIRMED_SUBMISSIONS]: updatedConfirmed
+    });
+  }
+
+  const allSucceeded = results.every((r) => r.success || r.skipped);
+  const anyFailed = results.some((r) => !r.success && !r.skipped && !r.needsOverwriteConfirmation);
+
+  console.log('[AceLC Background] Upload results summary:');
+  for (const r of results) {
+    if (r.success && r.skipped) console.log(`  SKIPPED  : ${r.filePath}`);
+    else if (r.success && r.overwritten) console.log(`  UPDATED  : ${r.filePath} → ${r.url || 'no URL'}`);
+    else if (r.success) console.log(`  CREATED  : ${r.filePath} → ${r.url || 'no URL'}`);
+    else if (r.needsOverwriteConfirmation) console.log(`  CONFLICT : ${r.filePath} (needs overwrite confirmation)`);
+    else console.log(`  FAILED   : ${r.filePath} — ${r.error}`);
+  }
+
+  return {
+    success: anySucceeded || (results.every((r) => r.skipped)),
+    results,
+    needsOverwriteConfirmation: needsConfirmation,
+    allSucceeded,
+    anyFailed,
+    filename,
+    repository: { fullName, branch }
+  };
+}
+
+/**
+ * =========================================================================
  * SUBMISSION MANAGEMENT (PHASE 5)
  * =========================================================================
  */
@@ -1346,9 +1707,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       success: true,
       name: AceConstants.EXTENSION_NAME,
       version: AceConstants.VERSION,
-      phase: 'Phase 6: Submission Destination Selection'
+      phase: 'Phase 7: GitHub Solution Uploading'
     });
     return false;
+  }
+
+  // Upload actions (Phase 7)
+  if (message.action === AceConstants.MESSAGES.UPLOAD_SOLUTION) {
+    uploadSolution(message.payload || {}).then(sendResponse);
+    return true;
+  }
+
+  if (message.action === AceConstants.MESSAGES.CHECK_FILE_EXISTS) {
+    const { fullName, filePath, branch } = message.payload || {};
+    getStoredToken().then((token) => {
+      if (!token) {
+        sendResponse({ success: false, error: 'Not authenticated.' });
+        return;
+      }
+      checkFileExists(token, fullName, filePath, branch).then((r) =>
+        sendResponse({ success: true, ...r })
+      );
+    });
+    return true;
   }
 
   sendResponse({ success: false, error: 'Unhandled action' });

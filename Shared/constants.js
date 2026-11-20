@@ -63,9 +63,12 @@ const AceConstants = Object.freeze({
     CONFIRM_DESTINATION_SELECTION: 'ACE_CONFIRM_DESTINATION_SELECTION',
     CANCEL_DESTINATION_SELECTION: 'ACE_CANCEL_DESTINATION_SELECTION',
 
+    // Upload actions (Phase 7)
+    UPLOAD_SOLUTION: 'ACE_UPLOAD_SOLUTION',
+    CHECK_FILE_EXISTS: 'ACE_CHECK_FILE_EXISTS',
+
     // Core actions
-    GET_STATUS: 'ACE_GET_STATUS',
-    UPLOAD_SOLUTION: 'ACE_UPLOAD_SOLUTION'
+    GET_STATUS: 'ACE_GET_STATUS'
   },
 
   // In-page Bridge Event names for main-world communication

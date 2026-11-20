@@ -1221,14 +1221,9 @@
         },
         (response) => {
           if (response && response.success) {
-            modal.innerHTML = `
-              <div class="acelc-success-banner">
-                ✓ Destination confirmed! Solution queued for upload.
-              </div>
-            `;
-            setTimeout(() => {
-              overlay.remove();
-            }, 1400);
+            // Phase 7: Trigger upload immediately after confirmation
+            confirmBtn.textContent = 'Uploading...';
+            triggerModalUpload(response.confirmedSubmission, modal, overlay, {});
           } else {
             confirmBtn.disabled = false;
             cancelBtn.disabled = false;
@@ -1248,6 +1243,186 @@
 
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
+  }
+
+  /**
+   * Trigger solution upload from the in-page modal and render the result.
+   * Handles overwrite confirmation inline with new buttons in the modal.
+   * @param {object|null} confirmedRecord
+   * @param {HTMLElement} modal
+   * @param {HTMLElement} overlay
+   * @param {object} overwriteDecisions
+   */
+  function triggerModalUpload(confirmedRecord, modal, overlay, overwriteDecisions) {
+    if (!confirmedRecord) {
+      // Fall back — no confirmed record returned; just show queued message
+      modal.innerHTML = `<div class="acelc-success-banner">✓ Solution queued for upload.</div>`;
+      setTimeout(() => overlay.remove(), 1400);
+      return;
+    }
+
+    safeSendMessage(
+      {
+        action: Constants.MESSAGES.UPLOAD_SOLUTION,
+        payload: {
+          submissionUid: confirmedRecord.uid,
+          overwriteDecisions: overwriteDecisions || {}
+        }
+      },
+      (response) => {
+        if (!response) {
+          modal.innerHTML = `<div class="acelc-success-banner" style="background:#fef2f2;border-color:#fecaca;color:#b91c1c;">❌ Upload failed: could not reach background worker.</div>`;
+          setTimeout(() => overlay.remove(), 2500);
+          return;
+        }
+
+        // Some folders need overwrite confirmation
+        if (response.needsOverwriteConfirmation && Array.isArray(response.results)) {
+          const conflicting = response.results.filter((r) => r.needsOverwriteConfirmation);
+          renderModalOverwritePrompt(modal, overlay, confirmedRecord, conflicting, overwriteDecisions);
+          return;
+        }
+
+        // Render upload results
+        renderModalUploadResults(modal, overlay, response);
+      }
+    );
+  }
+
+  /**
+   * Render overwrite confirmation buttons inside the in-page modal.
+   */
+  function renderModalOverwritePrompt(modal, overlay, confirmedRecord, conflicting, existingDecisions) {
+    modal.innerHTML = '';
+
+    const header = document.createElement('div');
+    header.className = 'acelc-modal-header';
+    const brandBadge = document.createElement('span');
+    brandBadge.className = 'acelc-brand-badge';
+    brandBadge.textContent = 'AceLC';
+    const title = document.createElement('span');
+    title.className = 'acelc-modal-title';
+    title.textContent = 'File Already Exists';
+    header.appendChild(brandBadge);
+    header.appendChild(title);
+    modal.appendChild(header);
+
+    const intro = document.createElement('div');
+    intro.style.cssText = 'font-size:12px;color:#92400e;background:#fffbeb;border:1px solid #fef3c7;border-radius:6px;padding:8px;margin-bottom:4px;';
+    intro.textContent = `${conflicting.length} file(s) already exist in GitHub. Choose what to do:`;
+    modal.appendChild(intro);
+
+    const decisions = { ...existingDecisions };
+    let resolvedCount = 0;
+
+    for (const item of conflicting) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;flex-direction:column;gap:4px;padding:6px;background:#f8fafc;border-radius:4px;margin-bottom:4px;';
+
+      const pathEl = document.createElement('div');
+      pathEl.style.cssText = 'font-size:11px;color:#334155;word-break:break-all;font-weight:600;';
+      pathEl.textContent = item.filePath;
+
+      const btnsRow = document.createElement('div');
+      btnsRow.style.cssText = 'display:flex;gap:6px;';
+
+      const overwriteBtn = document.createElement('button');
+      overwriteBtn.className = 'acelc-btn-confirm';
+      overwriteBtn.style.cssText = 'flex:1;font-size:12px;padding:6px;background:#dc2626;';
+      overwriteBtn.textContent = '✏️ Overwrite';
+
+      const skipBtn = document.createElement('button');
+      skipBtn.className = 'acelc-btn-cancel';
+      skipBtn.style.cssText = 'font-size:12px;padding:6px;';
+      skipBtn.textContent = '⏭️ Skip';
+
+      function handleDecision(folder, decision) {
+        decisions[folder] = decision;
+        overwriteBtn.disabled = true;
+        skipBtn.disabled = true;
+        pathEl.textContent = `${item.filePath} → ${decision === 'overwrite' ? '✏️ Overwrite' : '⏭️ Skip'}`;
+        resolvedCount += 1;
+        if (resolvedCount === conflicting.length) {
+          modal.innerHTML = '';
+          const uploadingMsg = document.createElement('div');
+          uploadingMsg.className = 'acelc-success-banner';
+          uploadingMsg.textContent = 'Uploading...';
+          modal.appendChild(uploadingMsg);
+          triggerModalUpload(confirmedRecord, modal, overlay, decisions);
+        }
+      }
+
+      overwriteBtn.onclick = () => handleDecision(item.folder, 'overwrite');
+      skipBtn.onclick = () => handleDecision(item.folder, 'skip');
+
+      btnsRow.appendChild(overwriteBtn);
+      btnsRow.appendChild(skipBtn);
+      row.appendChild(pathEl);
+      row.appendChild(btnsRow);
+      modal.appendChild(row);
+    }
+  }
+
+  /**
+   * Render upload results summary inside the in-page modal.
+   */
+  function renderModalUploadResults(modal, overlay, response) {
+    modal.innerHTML = '';
+
+    const results = Array.isArray(response.results) ? response.results : [];
+    const created = results.filter((r) => r.success && !r.skipped && !r.overwritten);
+    const overwritten = results.filter((r) => r.success && r.overwritten);
+    const skipped = results.filter((r) => r.success && r.skipped);
+    const failed = results.filter((r) => !r.success && !r.needsOverwriteConfirmation);
+
+    const hasSuccess = created.length + overwritten.length > 0;
+    const hasFailure = failed.length > 0;
+
+    if (hasSuccess) {
+      const banner = document.createElement('div');
+      banner.className = 'acelc-success-banner';
+      banner.textContent = `✅ Upload successful! ${response.filename || 'File'} saved to GitHub.`;
+      modal.appendChild(banner);
+
+      for (const r of [...created, ...overwritten]) {
+        const link = document.createElement('a');
+        link.href = r.url || '#';
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.style.cssText = 'display:block;font-size:11px;color:#2563eb;margin-top:6px;word-break:break-all;text-decoration:none;';
+        link.textContent = `📄 View: ${r.filePath}`;
+        link.onmouseover = () => { link.style.textDecoration = 'underline'; };
+        link.onmouseout = () => { link.style.textDecoration = 'none'; };
+        modal.appendChild(link);
+      }
+    }
+
+    for (const r of skipped) {
+      const note = document.createElement('div');
+      note.style.cssText = 'font-size:11px;color:#64748b;margin-top:4px;';
+      note.textContent = `⏭️ Skipped (already exists): ${r.filePath}`;
+      modal.appendChild(note);
+    }
+
+    for (const r of failed) {
+      const errEl = document.createElement('div');
+      errEl.style.cssText = 'font-size:11px;color:#b91c1c;margin-top:4px;background:#fef2f2;border:1px solid #fecaca;border-radius:4px;padding:6px;';
+      errEl.textContent = `❌ ${r.filePath}: ${r.error || 'Upload failed.'}`;
+      modal.appendChild(errEl);
+    }
+
+    // Auto-close after a moment if everything succeeded
+    if (hasSuccess && !hasFailure) {
+      setTimeout(() => overlay.remove(), 2500);
+    } else {
+      // Add manual close for failures
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'acelc-btn-cancel';
+      closeBtn.textContent = 'Close';
+      closeBtn.style.cssText = 'margin-top:10px;width:100%;';
+      closeBtn.onclick = () => overlay.remove();
+      modal.appendChild(closeBtn);
+    }
   }
 
   // Listen for background worker messages to show destination modal
