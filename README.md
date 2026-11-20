@@ -1,4 +1,3 @@
-
 # AceLC
 
 **AceLC** is an open-source Chrome extension that automatically uploads your accepted [LeetCode](https://leetcode.com/) solutions to your [GitHub](https://github.com/) repository.
@@ -7,11 +6,11 @@ Built by [CodeGab](https://github.com/CodeGab) to make tracking and managing cod
 
 ## Features
 
-- **GitHub Authentication** — Connect your GitHub account.
-- **Repository Management** — Create a new repository or select an existing one.
-- **Folder Management** — Choose and manage folders for your solutions.
-- **Automatic Uploads** — Detect accepted LeetCode submissions and upload them to GitHub.
-- **Multiple Destinations** — Upload a solution to multiple selected folders.
+- **Manifest V3 Foundation** - Service worker lifecycle and storage persistence setup.
+- **LeetCode Detection Hook** - Content script targeting LeetCode problem pages.
+- **Extension Popup** - Status interface and quick access to extension settings.
+- **Options Management** - Dedicated settings page for extension configuration.
+- **Shared Architecture** - Unified constants and messaging protocol across components.
 
 ## Tech Stack
 
@@ -23,11 +22,17 @@ Built by [CodeGab](https://github.com/CodeGab) to make tracking and managing cod
 
 ## Getting Started
 
-Installation and usage instructions will be added as the MVP develops.
+To load the extension locally in Google Chrome:
+
+1. Clone or download this repository.
+2. Open Chrome and navigate to `chrome://extensions`.
+3. Enable **Developer mode** in the top-right corner.
+4. Click **Load unpacked** and select the repository directory.
+5. Click the AceLC icon in the Chrome toolbar to open the extension popup.
 
 ## Project Status
 
-AceLC is currently under development.
+AceLC is currently under development. Phase 1 (Project Foundation) is complete.
 
 ## Contributing
 
@@ -37,4 +42,4 @@ Please check the project's contribution guidelines before submitting a pull requ
 
 ## License
 
-To be decided.
+This project is licensed under the [MIT License](LICENSE).

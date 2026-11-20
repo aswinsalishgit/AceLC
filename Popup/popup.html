@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AceLC</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="brand">
+        <h1 class="brand-title">AceLC</h1>
+        <span class="badge">MVP</span>
+      </div>
+      <p class="tagline">LeetCode to GitHub Sync</p>
+    </header>
+
+    <main class="content">
+      <section class="card">
+        <h2 class="card-title">Welcome to AceLC</h2>
+        <p class="card-desc">
+          AceLC automatically uploads your accepted LeetCode solutions to your chosen GitHub repository.
+        </p>
+      </section>
+
+      <section class="card status-card">
+        <div class="status-indicator">
+          <span class="status-dot"></span>
+          <span class="status-text">Project Foundation Active</span>
+        </div>
+        <p class="status-note">
+          Phase 1 initialized. Authentication and repository setup will be enabled in upcoming phases.
+        </p>
+      </section>
+
+      <button id="openOptionsBtn" class="btn btn-secondary" type="button">
+        Open Options
+      </button>
+    </main>
+
+    <footer class="footer">
+      <small>Developed under CodeGab</small>
+    </footer>
+  </div>
+
+  <script src="../Shared/constants.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
