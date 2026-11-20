@@ -117,6 +117,64 @@
           </div>
         </div>
 
+        <!-- DESTINATION SELECTION CARD (PHASE 6) -->
+        <div id="destSelectionCard" class="dest-card hidden">
+          <div class="dest-card-header">
+            <div class="dest-header-left">
+              <span class="status-dot dot-success pulse"></span>
+              <span class="dest-card-title">Solution Ready to Upload</span>
+            </div>
+            <span id="destQueueBadge" class="dest-queue-badge hidden">1 of 1</span>
+          </div>
+
+          <!-- Problem Info Summary -->
+          <div class="dest-problem-box">
+            <div class="dest-problem-title-row">
+              <span id="destProblemTitle" class="dest-problem-title">Two Sum</span>
+              <span id="destLanguageBadge" class="badge">Python3</span>
+            </div>
+            <div class="dest-problem-meta-row">
+              <span id="destRuntimeBadge" class="dest-meta-item"></span>
+              <span id="destMemoryBadge" class="dest-meta-item"></span>
+            </div>
+          </div>
+
+          <!-- Destination Repository -->
+          <div class="dest-repo-row">
+            <span class="dest-meta-label">Repository:</span>
+            <span id="destRepoName" class="dest-repo-name">username/repo</span>
+          </div>
+
+          <!-- Destination Folders Checklist -->
+          <div class="dest-folders-section">
+            <div class="dest-folders-header">
+              <span class="dest-meta-label">Destination Folders:</span>
+              <button id="destSelectAllBtn" class="btn-text-link" type="button">Deselect All</button>
+            </div>
+            <div id="destFoldersChecklist" class="dest-folders-list">
+              <!-- Dynamically populated checkboxes -->
+            </div>
+            <span id="destValidationMsg" class="validation-msg hidden">Please select at least one destination folder.</span>
+          </div>
+
+          <!-- Destination Actions -->
+          <div class="dest-actions-row">
+            <button id="destConfirmBtn" class="btn btn-primary" type="button">
+              Upload Solution
+            </button>
+            <button id="destCancelBtn" class="btn btn-secondary" type="button">
+              Cancel
+            </button>
+          </div>
+
+          <!-- Queue Navigation (for multiple pending submissions) -->
+          <div id="destQueueNav" class="dest-queue-nav hidden">
+            <button id="destPrevBtn" class="btn btn-sm btn-outline" type="button">&larr; Prev</button>
+            <span id="destQueueNavText" class="dest-nav-text">Submission 1 of 2</span>
+            <button id="destNextBtn" class="btn btn-sm btn-outline" type="button">Next &rarr;</button>
+          </div>
+        </div>
+
         <!-- REPOSITORY & FOLDER MANAGEMENT SECTION -->
         <div class="repo-section">
           

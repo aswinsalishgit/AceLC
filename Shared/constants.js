@@ -17,7 +17,9 @@ const AceConstants = Object.freeze({
     SELECTED_REPO: 'ace_selected_repo',
     DESTINATION_FOLDERS: 'ace_destination_folders',
     IS_ACTIVATED: 'ace_is_activated',
-    PENDING_SUBMISSION: 'ace_pending_submission'
+    PENDING_SUBMISSION: 'ace_pending_submission',
+    PENDING_SUBMISSION_QUEUE: 'ace_pending_submission_queue',
+    CONFIRMED_SUBMISSIONS: 'ace_confirmed_submissions'
   },
 
   // Authentication UI and process states
@@ -54,6 +56,12 @@ const AceConstants = Object.freeze({
     SUBMISSION_DETECTED: 'ACE_SUBMISSION_DETECTED',
     GET_PENDING_SUBMISSION: 'ACE_GET_PENDING_SUBMISSION',
     CLEAR_PENDING_SUBMISSION: 'ACE_CLEAR_PENDING_SUBMISSION',
+
+    // Destination Selection actions (Phase 6)
+    SHOW_DESTINATION_MODAL: 'ACE_SHOW_DESTINATION_MODAL',
+    GET_PENDING_QUEUE: 'ACE_GET_PENDING_QUEUE',
+    CONFIRM_DESTINATION_SELECTION: 'ACE_CONFIRM_DESTINATION_SELECTION',
+    CANCEL_DESTINATION_SELECTION: 'ACE_CANCEL_DESTINATION_SELECTION',
 
     // Core actions
     GET_STATUS: 'ACE_GET_STATUS',

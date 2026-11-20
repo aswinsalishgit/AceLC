@@ -60,19 +60,52 @@
         return { code: null, language: null };
       }
 
+      let bestCode = null;
+      let bestLang = null;
+      let maxLen = 0;
+
+      // 1. Inspect all active editor instances
       const editors = window.monaco.editor.getEditors();
-      if (!Array.isArray(editors) || editors.length === 0) {
-        return { code: null, language: null };
+      if (Array.isArray(editors) && editors.length > 0) {
+        for (const editor of editors) {
+          try {
+            if (typeof editor.getValue === 'function') {
+              const val = editor.getValue();
+              if (val && val.trim().length > maxLen) {
+                maxLen = val.trim().length;
+                bestCode = val;
+                const model = editor.getModel();
+                if (model && typeof model.getLanguageId === 'function') {
+                  bestLang = model.getLanguageId();
+                }
+              }
+            }
+          } catch (e) {}
+        }
       }
 
-      // The main workspace editor is almost always index 0
-      const editor = editors[0];
-      const model = editor.getModel();
+      // 2. Inspect all text models directly as fallback
+      if (!bestCode && typeof window.monaco.editor.getModels === 'function') {
+        const models = window.monaco.editor.getModels();
+        if (Array.isArray(models) && models.length > 0) {
+          for (const model of models) {
+            try {
+              if (typeof model.getValue === 'function') {
+                const val = model.getValue();
+                if (val && val.trim().length > maxLen) {
+                  maxLen = val.trim().length;
+                  bestCode = val;
+                  if (typeof model.getLanguageId === 'function') {
+                    bestLang = model.getLanguageId();
+                  }
+                }
+              }
+            } catch (e) {}
+          }
+        }
+      }
 
-      const code = typeof editor.getValue === 'function' ? editor.getValue() : null;
-      const language = model && typeof model.getLanguageId === 'function' ? model.getLanguageId() : null;
-
-      return { code, language };
+      return { code: bestCode, language: bestLang };
     } catch (err) {
       console.warn('[AceLC Bridge] Failed reading from Monaco editor:', err);
       return { code: null, language: null };

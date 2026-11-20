@@ -11,6 +11,7 @@ Built by [CodeGab](https://github.com/CodeGab) to make tracking and managing cod
 - **Repository Management** - Retrieve, select existing, or create new public and private GitHub repositories.
 - **Destination Folder Management** - Configure multiple destination folders per repository, with support for custom paths and existing GitHub directories.
 - **LeetCode Submission Detection** - Detect accepted submissions, snapshot source code at submit time, identify languages, and extract problem metadata.
+- **Submission Destination Selection** - In-page modal and popup interface to select one or multiple destination folders, validate targets, and manage pending submissions.
 - **Extension Popup** - Multi-state interface for authorization codes, approval checks, repository selection, folder configuration, and user profile display.
 - **Options Management** - Dedicated settings page for OAuth application configuration and destination repository settings.
 - **Shared Architecture** - Unified constants and messaging protocol across components.
@@ -35,7 +36,7 @@ To load the extension locally in Google Chrome:
 
 ## Project Status
 
-AceLC is currently under development. Phase 5 (LeetCode Submission Detection) is complete.
+AceLC is currently under development. Phase 6 (Submission Destination Selection) is complete.
 
 ## Contributing
 

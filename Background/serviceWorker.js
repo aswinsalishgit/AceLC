@@ -49,6 +49,14 @@ chrome.runtime.onInstalled.addListener((details) => {
         updates[AceConstants.STORAGE_KEYS.SELECTED_REPO] = null;
       }
 
+      if (!Array.isArray(result[AceConstants.STORAGE_KEYS.PENDING_SUBMISSION_QUEUE])) {
+        updates[AceConstants.STORAGE_KEYS.PENDING_SUBMISSION_QUEUE] = [];
+      }
+
+      if (!Array.isArray(result[AceConstants.STORAGE_KEYS.CONFIRMED_SUBMISSIONS])) {
+        updates[AceConstants.STORAGE_KEYS.CONFIRMED_SUBMISSIONS] = [];
+      }
+
       if (Object.keys(updates).length > 0) {
         chrome.storage.local.set(updates, () => {
           console.log('[AceLC Background] Initial state configured in storage.');
@@ -921,11 +929,30 @@ async function setDestinationFolders(foldersArray) {
 const processedSubmissionsCache = new Map();
 
 /**
+ * Update extension action badge with current pending submissions count
+ * @param {number} count 
+ */
+function updateExtensionBadge(count) {
+  try {
+    if (typeof chrome.action !== 'undefined' && chrome.action.setBadgeText) {
+      const text = count > 0 ? String(count) : '';
+      chrome.action.setBadgeText({ text });
+      if (count > 0 && chrome.action.setBadgeBackgroundColor) {
+        chrome.action.setBadgeBackgroundColor({ color: '#2da44e' });
+      }
+    }
+  } catch (err) {
+    // Action API not available in some contexts
+  }
+}
+
+/**
  * Handle and persist verified accepted submissions detected from LeetCode
  * @param {object} submission 
+ * @param {number|null} senderTabId
  * @returns {Promise<{success: boolean, duplicate?: boolean, submission?: object, error?: string}>}
  */
-async function handleAcceptedSubmission(submission) {
+async function handleAcceptedSubmission(submission, senderTabId = null) {
   if (!submission || typeof submission !== 'object') {
     return { success: false, error: 'Invalid submission payload.' };
   }
@@ -972,7 +999,10 @@ async function handleAcceptedSubmission(submission) {
 
   processedSubmissionsCache.set(dedupKey, now);
 
+  const uid = 'sub_' + now + '_' + Math.random().toString(36).slice(2, 8);
+
   const submissionRecord = {
+    uid: uid,
     problemTitle: problemTitle || problemSlug,
     problemSlug: problemSlug,
     problemUrl: submission.problemUrl || `https://leetcode.com/problems/${problemSlug}/`,
@@ -987,27 +1017,194 @@ async function handleAcceptedSubmission(submission) {
     detectedAt: now
   };
 
-  // Persist as pending submission for Phase 6 destination selection and upload
+  // 1. Maintain queue of pending submissions (Phase 6)
+  const queueResult = await chrome.storage.local.get([
+    AceConstants.STORAGE_KEYS.PENDING_SUBMISSION_QUEUE,
+    AceConstants.STORAGE_KEYS.SELECTED_REPO,
+    AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS
+  ]);
+
+  let queue = Array.isArray(queueResult[AceConstants.STORAGE_KEYS.PENDING_SUBMISSION_QUEUE])
+    ? queueResult[AceConstants.STORAGE_KEYS.PENDING_SUBMISSION_QUEUE]
+    : [];
+
+  // Filter out any stale items older than 24 hours
+  const cutoff = now - (24 * 60 * 60 * 1000);
+  queue = queue.filter((item) => item && item.detectedAt && item.detectedAt > cutoff);
+
+  // Add the newly detected submission to the pending queue
+  queue.push(submissionRecord);
+
+  // Update storage with queue and single pending submission
   await chrome.storage.local.set({
+    [AceConstants.STORAGE_KEYS.PENDING_SUBMISSION_QUEUE]: queue,
     [AceConstants.STORAGE_KEYS.PENDING_SUBMISSION]: submissionRecord
   });
 
+  updateExtensionBadge(queue.length);
+
+  const selectedRepo = queueResult[AceConstants.STORAGE_KEYS.SELECTED_REPO] || null;
+  const destinationFolders = Array.isArray(queueResult[AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS])
+    ? queueResult[AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS]
+    : [];
+
   console.log('[AceLC Background] ========================================');
   console.log('[AceLC Background] Accepted LeetCode Submission Received:');
+  console.log(`  UID: ${submissionRecord.uid}`);
   console.log(`  Problem: [${submissionRecord.problemNumber || '?'}] ${submissionRecord.problemTitle} (${submissionRecord.problemSlug})`);
   console.log(`  Language: ${submissionRecord.language} (${submissionRecord.languageExt})`);
   console.log(`  Code length: ${submissionRecord.code.length} characters`);
   if (submissionRecord.submissionId) console.log(`  Submission ID: ${submissionRecord.submissionId}`);
   if (submissionRecord.runtime) console.log(`  Runtime: ${submissionRecord.runtime}`);
   if (submissionRecord.memory) console.log(`  Memory: ${submissionRecord.memory}`);
-  console.log(`  URL: ${submissionRecord.problemUrl}`);
+  console.log(`  Pending queue length: ${queue.length}`);
   console.log('[AceLC Background] ========================================');
+
+  // Trigger in-page destination selection interface on the LeetCode tab
+  if (senderTabId) {
+    chrome.tabs.sendMessage(senderTabId, {
+      action: AceConstants.MESSAGES.SHOW_DESTINATION_MODAL,
+      submission: submissionRecord,
+      repository: selectedRepo,
+      folders: destinationFolders,
+      queueLength: queue.length
+    }).catch(() => {
+      // Content script might be reloading
+    });
+  }
 
   return {
     success: true,
     submission: submissionRecord,
+    repository: selectedRepo,
+    folders: destinationFolders,
+    queueLength: queue.length,
     message: 'Accepted submission successfully captured and saved.'
   };
+}
+
+/**
+ * Retrieve all pending submissions in the queue along with repo and folder configuration
+ */
+async function getPendingQueue() {
+  const result = await chrome.storage.local.get([
+    AceConstants.STORAGE_KEYS.PENDING_SUBMISSION_QUEUE,
+    AceConstants.STORAGE_KEYS.SELECTED_REPO,
+    AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS
+  ]);
+
+  const queue = Array.isArray(result[AceConstants.STORAGE_KEYS.PENDING_SUBMISSION_QUEUE])
+    ? result[AceConstants.STORAGE_KEYS.PENDING_SUBMISSION_QUEUE]
+    : [];
+  const repository = result[AceConstants.STORAGE_KEYS.SELECTED_REPO] || null;
+  const folders = Array.isArray(result[AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS])
+    ? result[AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS]
+    : [];
+
+  return {
+    success: true,
+    queue,
+    repository,
+    folders
+  };
+}
+
+/**
+ * Confirm destination selection for a pending submission
+ * @param {object} payload { submissionUid: string, selectedFolders: Array<string> }
+ */
+async function confirmDestinationSelection({ submissionUid, selectedFolders }) {
+  if (!selectedFolders || !Array.isArray(selectedFolders) || selectedFolders.length === 0) {
+    return { success: false, error: 'At least one destination folder must be selected.' };
+  }
+
+  const result = await chrome.storage.local.get([
+    AceConstants.STORAGE_KEYS.PENDING_SUBMISSION_QUEUE,
+    AceConstants.STORAGE_KEYS.CONFIRMED_SUBMISSIONS,
+    AceConstants.STORAGE_KEYS.SELECTED_REPO
+  ]);
+
+  let queue = Array.isArray(result[AceConstants.STORAGE_KEYS.PENDING_SUBMISSION_QUEUE])
+    ? result[AceConstants.STORAGE_KEYS.PENDING_SUBMISSION_QUEUE]
+    : [];
+  let confirmedList = Array.isArray(result[AceConstants.STORAGE_KEYS.CONFIRMED_SUBMISSIONS])
+    ? result[AceConstants.STORAGE_KEYS.CONFIRMED_SUBMISSIONS]
+    : [];
+  const selectedRepo = result[AceConstants.STORAGE_KEYS.SELECTED_REPO] || null;
+
+  // Locate the target submission by UID, or the oldest if no UID given
+  const targetIndex = submissionUid
+    ? queue.findIndex((s) => s.uid === submissionUid)
+    : 0;
+
+  if (targetIndex === -1 || !queue[targetIndex]) {
+    return { success: false, error: 'Target submission was not found in the pending queue.' };
+  }
+
+  const targetSubmission = queue[targetIndex];
+  const confirmedRecord = {
+    ...targetSubmission,
+    confirmedFolders: selectedFolders,
+    repository: selectedRepo,
+    confirmedAt: Date.now()
+  };
+
+  // Remove confirmed item from pending queue
+  queue.splice(targetIndex, 1);
+  confirmedList.push(confirmedRecord);
+
+  await chrome.storage.local.set({
+    [AceConstants.STORAGE_KEYS.PENDING_SUBMISSION_QUEUE]: queue,
+    [AceConstants.STORAGE_KEYS.CONFIRMED_SUBMISSIONS]: confirmedList,
+    [AceConstants.STORAGE_KEYS.PENDING_SUBMISSION]: queue.length > 0 ? queue[0] : null
+  });
+
+  updateExtensionBadge(queue.length);
+
+  console.log('[AceLC Background] ========================================');
+  console.log('[AceLC Background] Destination Selection Confirmed:');
+  console.log(`  Problem: [${confirmedRecord.problemNumber || '?'}] ${confirmedRecord.problemTitle} (${confirmedRecord.problemSlug})`);
+  console.log(`  Language: ${confirmedRecord.language} (${confirmedRecord.languageExt})`);
+  console.log(`  Repository: ${selectedRepo ? selectedRepo.fullName : 'None'}`);
+  console.log(`  Selected Folders: ${JSON.stringify(selectedFolders)}`);
+  console.log(`  UID: ${confirmedRecord.uid}`);
+  console.log(`  Remaining in queue: ${queue.length}`);
+  console.log('[AceLC Background] ========================================');
+
+  return {
+    success: true,
+    confirmedSubmission: confirmedRecord,
+    remainingCount: queue.length
+  };
+}
+
+/**
+ * Cancel destination selection for a pending submission
+ * @param {object} payload { submissionUid: string }
+ */
+async function cancelDestinationSelection({ submissionUid }) {
+  const result = await chrome.storage.local.get(AceConstants.STORAGE_KEYS.PENDING_SUBMISSION_QUEUE);
+  let queue = Array.isArray(result[AceConstants.STORAGE_KEYS.PENDING_SUBMISSION_QUEUE])
+    ? result[AceConstants.STORAGE_KEYS.PENDING_SUBMISSION_QUEUE]
+    : [];
+
+  const targetIndex = submissionUid
+    ? queue.findIndex((s) => s.uid === submissionUid)
+    : 0;
+
+  if (targetIndex !== -1 && queue[targetIndex]) {
+    const cancelled = queue.splice(targetIndex, 1)[0];
+    console.log(`[AceLC Background] Pending submission cancelled: ${cancelled.problemSlug} (${cancelled.uid})`);
+  }
+
+  await chrome.storage.local.set({
+    [AceConstants.STORAGE_KEYS.PENDING_SUBMISSION_QUEUE]: queue,
+    [AceConstants.STORAGE_KEYS.PENDING_SUBMISSION]: queue.length > 0 ? queue[0] : null
+  });
+
+  updateExtensionBadge(queue.length);
+
+  return { success: true, remainingCount: queue.length };
 }
 
 /**
@@ -1113,7 +1310,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // Submission actions (Phase 5)
   if (message.action === AceConstants.MESSAGES.SUBMISSION_DETECTED) {
-    handleAcceptedSubmission(message.submission).then(sendResponse);
+    const senderTabId = (sender && sender.tab) ? sender.tab.id : null;
+    handleAcceptedSubmission(message.submission, senderTabId).then(sendResponse);
     return true;
   }
 
@@ -1127,12 +1325,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Destination Selection actions (Phase 6)
+  if (message.action === AceConstants.MESSAGES.GET_PENDING_QUEUE) {
+    getPendingQueue().then(sendResponse);
+    return true;
+  }
+
+  if (message.action === AceConstants.MESSAGES.CONFIRM_DESTINATION_SELECTION) {
+    confirmDestinationSelection(message.payload || {}).then(sendResponse);
+    return true;
+  }
+
+  if (message.action === AceConstants.MESSAGES.CANCEL_DESTINATION_SELECTION) {
+    cancelDestinationSelection(message.payload || {}).then(sendResponse);
+    return true;
+  }
+
   if (message.action === AceConstants.MESSAGES.GET_STATUS) {
     sendResponse({
       success: true,
       name: AceConstants.EXTENSION_NAME,
       version: AceConstants.VERSION,
-      phase: 'Phase 5: LeetCode Submission Detection'
+      phase: 'Phase 6: Submission Destination Selection'
     });
     return false;
   }

@@ -43,6 +43,42 @@
     return String(hash);
   }
 
+  /**
+   * Check if extension context is valid
+   * @returns {boolean}
+   */
+  function isExtensionValid() {
+    try {
+      return Boolean(typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * Safe message sender that suppresses Extension context invalidated errors
+   * @param {object} message
+   * @param {function} callback
+   */
+  function safeSendMessage(message, callback) {
+    if (!isExtensionValid()) {
+      console.warn('[AceLC Content] Extension reloaded. Please refresh the LeetCode page (F5) to re-enable AceLC.');
+      return;
+    }
+    try {
+      chrome.runtime.sendMessage(message, (response) => {
+        if (!isExtensionValid() || (chrome.runtime && chrome.runtime.lastError)) {
+          return;
+        }
+        if (typeof callback === 'function') {
+          callback(response);
+        }
+      });
+    } catch (err) {
+      console.warn('[AceLC Content] Message dispatch skipped (extension context may have been invalidated):', err.message);
+    }
+  }
+
   // =========================================================================
   // 1. PAGE AND PROBLEM IDENTIFICATION
   // =========================================================================
@@ -174,12 +210,21 @@
       }
 
       // 2. Check Monaco hidden textarea / inputarea
-      const textarea = document.querySelector('.monaco-editor textarea.inputarea');
+      const textarea = document.querySelector('.monaco-editor textarea.inputarea, textarea[wrap="off"]');
       if (textarea && textarea.value && textarea.value.trim().length > 0) {
         return textarea.value;
       }
 
-      // 3. Check legacy CodeMirror lines
+      // 3. Check submission detail page code containers (if already navigated to /submissions/<id>/)
+      const codeBlocks = document.querySelectorAll('pre code, pre.font-mono, pre[class*="language-"], div[class*="code-container"]');
+      for (const block of codeBlocks) {
+        const txt = block.textContent;
+        if (txt && txt.trim().length > 10) {
+          return txt;
+        }
+      }
+
+      // 4. Check legacy CodeMirror lines
       const cmLines = document.querySelectorAll('.CodeMirror-line');
       if (cmLines && cmLines.length > 0) {
         const lines = Array.from(cmLines).map((line) => line.textContent || '');
@@ -296,7 +341,7 @@
    */
   function isSubmitButton(element) {
     if (!element) return false;
-    const btn = element.closest('button');
+    const btn = element.closest('button, [role="button"]');
     if (!btn) return false;
 
     // Check data attributes
@@ -305,7 +350,7 @@
 
     // Check visible text
     const text = (btn.textContent || '').trim().toLowerCase();
-    if (text === 'submit') return true;
+    if (text === 'submit' || text.startsWith('submit')) return true;
 
     return false;
   }
@@ -576,31 +621,647 @@
     console.log(`  Submission ID: ${submissionPayload.submissionId || 'N/A'}`);
     console.log(`  Code length: ${submissionPayload.code.length} chars`);
 
-    // Dispatch message to background service worker
-    try {
-      chrome.runtime.sendMessage(
-        {
-          action: Constants.MESSAGES.SUBMISSION_DETECTED,
-          submission: submissionPayload
-        },
-        (response) => {
-          if (chrome.runtime.lastError) {
-            console.error('[AceLC Content] Failed sending message to background:', chrome.runtime.lastError.message);
-            return;
-          }
+    // Dispatch message to background service worker safely
+    safeSendMessage(
+      {
+        action: Constants.MESSAGES.SUBMISSION_DETECTED,
+        submission: submissionPayload
+      },
+      (response) => {
+        if (response && response.success && response.submission) {
           console.log('[AceLC Content] Background worker successfully received submission:', response);
+          // Show destination selection modal directly on the page
+          showDestinationModal(
+            response.submission,
+            response.repository,
+            response.folders || []
+          );
         }
-      );
-    } catch (err) {
-      console.error('[AceLC Content] Unexpected error sending submission:', err);
-    }
+      }
+    );
 
     activeSubmissionSnapshot = null;
     stopResultObserver();
   }
 
   // =========================================================================
-  // 7. SPA NAVIGATION & LEETCODE UI CHANGE HANDLING
+  // 7. IN-PAGE DESTINATION SELECTION MODAL (PHASE 6)
+  // =========================================================================
+
+  /**
+   * Inject scoped styles for the in-page destination selection modal
+   */
+  function injectModalStyles() {
+    if (document.getElementById('acelc-dest-modal-styles')) return;
+
+    const styleEl = document.createElement('style');
+    styleEl.id = 'acelc-dest-modal-styles';
+    styleEl.textContent = `
+      #acelc-dest-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(15, 23, 42, 0.65);
+        backdrop-filter: blur(4px);
+        z-index: 2147483647;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-size: 13px;
+        color: #1e293b;
+        animation: acelc-fade-in 0.2s ease-out;
+      }
+      @keyframes acelc-fade-in {
+        from { opacity: 0; transform: scale(0.97); }
+        to { opacity: 1; transform: scale(1); }
+      }
+      #acelc-dest-modal {
+        background: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.08);
+        width: 440px;
+        max-width: 92vw;
+        max-height: 90vh;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        padding: 20px;
+        gap: 14px;
+        border: 1px solid #e2e8f0;
+      }
+      .acelc-modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid #f1f5f9;
+        padding-bottom: 12px;
+      }
+      .acelc-brand-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .acelc-brand-badge {
+        background: #e0e7ff;
+        color: #4338ca;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 2px 7px;
+        border-radius: 4px;
+      }
+      .acelc-modal-title {
+        font-size: 16px;
+        font-weight: 700;
+        color: #0f172a;
+      }
+      .acelc-close-btn {
+        background: transparent;
+        border: none;
+        font-size: 20px;
+        color: #64748b;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 6px;
+        line-height: 1;
+      }
+      .acelc-close-btn:hover {
+        background: #f1f5f9;
+        color: #0f172a;
+      }
+      .acelc-summary-card {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .acelc-problem-name {
+        font-size: 15px;
+        font-weight: 600;
+        color: #0f172a;
+      }
+      .acelc-badge-row {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .acelc-tag {
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: 4px;
+        background: #e2e8f0;
+        color: #334155;
+      }
+      .acelc-tag-lang {
+        background: #dbeafe;
+        color: #1d4ed8;
+      }
+      .acelc-tag-success {
+        background: #dcfce7;
+        color: #15803d;
+      }
+      .acelc-section-label {
+        font-size: 12px;
+        font-weight: 600;
+        color: #475569;
+        margin-bottom: 4px;
+        display: block;
+      }
+      .acelc-repo-box {
+        background: #ffffff;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 8px 10px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 12px;
+      }
+      .acelc-repo-name {
+        font-weight: 600;
+        color: #0f172a;
+      }
+      .acelc-folders-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .acelc-toggle-all-btn {
+        background: transparent;
+        border: none;
+        color: #2563eb;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 0;
+      }
+      .acelc-toggle-all-btn:hover {
+        text-decoration: underline;
+      }
+      .acelc-folders-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-height: 180px;
+        overflow-y: auto;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        padding: 8px;
+        background: #ffffff;
+      }
+      .acelc-folder-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background-color 0.1s ease;
+      }
+      .acelc-folder-item:hover {
+        background: #f1f5f9;
+      }
+      .acelc-folder-checkbox {
+        accent-color: #2da44e;
+        cursor: pointer;
+        width: 15px;
+        height: 15px;
+      }
+      .acelc-folder-label {
+        font-size: 12px;
+        font-weight: 500;
+        color: #1e293b;
+        cursor: pointer;
+        flex: 1;
+      }
+      .acelc-empty-folders-box {
+        padding: 10px;
+        background: #fffbeb;
+        border: 1px solid #fef3c7;
+        border-radius: 6px;
+        font-size: 12px;
+        color: #92400e;
+      }
+      .acelc-quick-add-row {
+        display: flex;
+        gap: 6px;
+        margin-top: 6px;
+      }
+      .acelc-quick-add-input {
+        flex: 1;
+        padding: 5px 8px;
+        font-size: 12px;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        outline: none;
+      }
+      .acelc-quick-add-btn {
+        background: #0f172a;
+        color: #ffffff;
+        border: none;
+        border-radius: 4px;
+        padding: 5px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .acelc-validation-error {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #b91c1c;
+        border-radius: 6px;
+        padding: 8px 10px;
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .acelc-actions-row {
+        display: flex;
+        gap: 10px;
+        margin-top: 4px;
+      }
+      .acelc-btn-confirm {
+        flex: 1;
+        background: #2da44e;
+        color: #ffffff;
+        border: none;
+        border-radius: 6px;
+        padding: 9px 14px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background-color 0.15s ease;
+      }
+      .acelc-btn-confirm:hover {
+        background: #2c974b;
+      }
+      .acelc-btn-confirm:disabled {
+        background: #94a3b8;
+        cursor: not-allowed;
+      }
+      .acelc-btn-cancel {
+        background: #f1f5f9;
+        color: #334155;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 9px 14px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background-color 0.15s ease;
+      }
+      .acelc-btn-cancel:hover {
+        background: #e2e8f0;
+      }
+      .acelc-success-banner {
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        color: #166534;
+        border-radius: 6px;
+        padding: 10px;
+        text-align: center;
+        font-weight: 600;
+        font-size: 13px;
+      }
+    `;
+    document.head.appendChild(styleEl);
+  }
+
+  /**
+   * Display in-page destination selection modal for an accepted submission
+   * @param {object} submission
+   * @param {object} repository
+   * @param {Array<string>} initialFolders
+   */
+  function showDestinationModal(submission, repository, initialFolders) {
+    if (!submission) return;
+
+    // Remove any existing modal
+    const existing = document.getElementById('acelc-dest-overlay');
+    if (existing) existing.remove();
+
+    injectModalStyles();
+
+    let folders = Array.isArray(initialFolders) ? [...initialFolders] : [];
+
+    const overlay = document.createElement('div');
+    overlay.id = 'acelc-dest-overlay';
+
+    const modal = document.createElement('div');
+    modal.id = 'acelc-dest-modal';
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'acelc-modal-header';
+
+    const brandRow = document.createElement('div');
+    brandRow.className = 'acelc-brand-row';
+
+    const brandBadge = document.createElement('span');
+    brandBadge.className = 'acelc-brand-badge';
+    brandBadge.textContent = 'AceLC';
+
+    const modalTitle = document.createElement('span');
+    modalTitle.className = 'acelc-modal-title';
+    modalTitle.textContent = 'Solution Accepted! 🎉';
+
+    brandRow.appendChild(brandBadge);
+    brandRow.appendChild(modalTitle);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'acelc-close-btn';
+    closeBtn.innerHTML = '&times;';
+    closeBtn.title = 'Dismiss';
+    closeBtn.onclick = () => {
+      cancelModal();
+    };
+
+    header.appendChild(brandRow);
+    header.appendChild(closeBtn);
+    modal.appendChild(header);
+
+    // Problem Summary Card
+    const summaryCard = document.createElement('div');
+    summaryCard.className = 'acelc-summary-card';
+
+    const problemName = document.createElement('div');
+    problemName.className = 'acelc-problem-name';
+    const numDisplay = submission.problemNumber ? `#${submission.problemNumber} ` : '';
+    problemName.textContent = `${numDisplay}${submission.problemTitle}`;
+
+    const badgeRow = document.createElement('div');
+    badgeRow.className = 'acelc-badge-row';
+
+    const langTag = document.createElement('span');
+    langTag.className = 'acelc-tag acelc-tag-lang';
+    langTag.textContent = submission.language || 'Unknown Language';
+
+    const statusTag = document.createElement('span');
+    statusTag.className = 'acelc-tag acelc-tag-success';
+    statusTag.textContent = '✓ Accepted';
+
+    badgeRow.appendChild(langTag);
+    badgeRow.appendChild(statusTag);
+
+    if (submission.runtime) {
+      const runtimeTag = document.createElement('span');
+      runtimeTag.className = 'acelc-tag';
+      runtimeTag.textContent = submission.runtime;
+      badgeRow.appendChild(runtimeTag);
+    }
+
+    if (submission.memory) {
+      const memoryTag = document.createElement('span');
+      memoryTag.className = 'acelc-tag';
+      memoryTag.textContent = submission.memory;
+      badgeRow.appendChild(memoryTag);
+    }
+
+    summaryCard.appendChild(problemName);
+    summaryCard.appendChild(badgeRow);
+    modal.appendChild(summaryCard);
+
+    // Destination Repository
+    const repoSection = document.createElement('div');
+    const repoLabel = document.createElement('span');
+    repoLabel.className = 'acelc-section-label';
+    repoLabel.textContent = 'Target Repository:';
+
+    const repoBox = document.createElement('div');
+    repoBox.className = 'acelc-repo-box';
+
+    const repoNameSpan = document.createElement('span');
+    repoNameSpan.className = 'acelc-repo-name';
+    repoNameSpan.textContent = repository ? repository.fullName : 'No repository selected';
+
+    const repoBadgeSpan = document.createElement('span');
+    repoBadgeSpan.className = 'acelc-tag';
+    repoBadgeSpan.textContent = repository ? (repository.isPrivate ? 'Private' : 'Public') : 'Not Configured';
+
+    repoBox.appendChild(repoNameSpan);
+    repoBox.appendChild(repoBadgeSpan);
+    repoSection.appendChild(repoLabel);
+    repoSection.appendChild(repoBox);
+    modal.appendChild(repoSection);
+
+    // Destination Folders Checklist Section
+    const foldersSection = document.createElement('div');
+
+    const foldersHeader = document.createElement('div');
+    foldersHeader.className = 'acelc-folders-header';
+
+    const foldersLabel = document.createElement('span');
+    foldersLabel.className = 'acelc-section-label';
+    foldersLabel.textContent = 'Select Destination Folders:';
+
+    const toggleAllBtn = document.createElement('button');
+    toggleAllBtn.className = 'acelc-toggle-all-btn';
+    toggleAllBtn.type = 'button';
+    toggleAllBtn.textContent = 'Deselect All';
+
+    foldersHeader.appendChild(foldersLabel);
+    foldersHeader.appendChild(toggleAllBtn);
+    foldersSection.appendChild(foldersHeader);
+
+    const foldersList = document.createElement('div');
+    foldersList.className = 'acelc-folders-list';
+
+    function renderFolderItems() {
+      foldersList.innerHTML = '';
+
+      if (folders.length === 0) {
+        toggleAllBtn.style.display = 'none';
+
+        const emptyBox = document.createElement('div');
+        emptyBox.className = 'acelc-empty-folders-box';
+        emptyBox.innerHTML = `
+          <strong>No folders configured.</strong><br>
+          Type a destination folder path to add one:
+        `;
+
+        const quickAddRow = document.createElement('div');
+        quickAddRow.className = 'acelc-quick-add-row';
+
+        const quickInput = document.createElement('input');
+        quickInput.type = 'text';
+        quickInput.className = 'acelc-quick-add-input';
+        quickInput.placeholder = 'e.g. Easy or Solutions/Python';
+
+        const quickBtn = document.createElement('button');
+        quickBtn.type = 'button';
+        quickBtn.className = 'acelc-quick-add-btn';
+        quickBtn.textContent = 'Add Folder';
+
+        function handleQuickAdd() {
+          const val = quickInput.value.trim().replace(/\\+/g, '/').replace(/^\/+|\/+$/g, '');
+          if (!val) return;
+          if (!folders.includes(val)) {
+            folders.push(val);
+            // Save to chrome.storage
+            safeSendMessage({
+              action: Constants.MESSAGES.ADD_DESTINATION_FOLDER,
+              folderPath: val
+            });
+            renderFolderItems();
+          }
+        }
+
+        quickBtn.onclick = handleQuickAdd;
+        quickInput.onkeydown = (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            handleQuickAdd();
+          }
+        };
+
+        quickAddRow.appendChild(quickInput);
+        quickAddRow.appendChild(quickBtn);
+        emptyBox.appendChild(quickAddRow);
+        foldersList.appendChild(emptyBox);
+        return;
+      }
+
+      toggleAllBtn.style.display = 'block';
+
+      for (const f of folders) {
+        const item = document.createElement('label');
+        item.className = 'acelc-folder-item';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'acelc-folder-checkbox';
+        cb.value = f;
+        cb.checked = true;
+
+        const lbl = document.createElement('span');
+        lbl.className = 'acelc-folder-label';
+        lbl.textContent = `📁 ${f}`;
+
+        item.appendChild(cb);
+        item.appendChild(lbl);
+        foldersList.appendChild(item);
+      }
+    }
+
+    renderFolderItems();
+    foldersSection.appendChild(foldersList);
+
+    // Validation Error Element
+    const validationError = document.createElement('div');
+    validationError.className = 'acelc-validation-error';
+    validationError.style.display = 'none';
+    validationError.textContent = 'Please select at least one destination folder.';
+    foldersSection.appendChild(validationError);
+
+    modal.appendChild(foldersSection);
+
+    // Toggle All functionality
+    let allSelected = true;
+    toggleAllBtn.onclick = () => {
+      const checkboxes = foldersList.querySelectorAll('.acelc-folder-checkbox');
+      allSelected = !allSelected;
+      checkboxes.forEach((cb) => (cb.checked = allSelected));
+      toggleAllBtn.textContent = allSelected ? 'Deselect All' : 'Select All';
+      if (allSelected) validationError.style.display = 'none';
+    };
+
+    // Actions Row
+    const actionsRow = document.createElement('div');
+    actionsRow.className = 'acelc-actions-row';
+
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'acelc-btn-confirm';
+    confirmBtn.type = 'button';
+    confirmBtn.textContent = 'Upload Solution';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'acelc-btn-cancel';
+    cancelBtn.type = 'button';
+    cancelBtn.textContent = 'Cancel';
+
+    function cancelModal() {
+      safeSendMessage({
+        action: Constants.MESSAGES.CANCEL_DESTINATION_SELECTION,
+        payload: { submissionUid: submission.uid }
+      });
+      overlay.remove();
+    }
+
+    confirmBtn.onclick = () => {
+      const checkboxes = foldersList.querySelectorAll('.acelc-folder-checkbox:checked');
+      const selected = Array.from(checkboxes).map((cb) => cb.value);
+
+      if (selected.length === 0) {
+        validationError.textContent = 'Please select at least one destination folder.';
+        validationError.style.display = 'block';
+        return;
+      }
+
+      validationError.style.display = 'none';
+      confirmBtn.disabled = true;
+      cancelBtn.disabled = true;
+      confirmBtn.textContent = 'Confirming Selection...';
+
+      safeSendMessage(
+        {
+          action: Constants.MESSAGES.CONFIRM_DESTINATION_SELECTION,
+          payload: {
+            submissionUid: submission.uid,
+            selectedFolders: selected
+          }
+        },
+        (response) => {
+          if (response && response.success) {
+            modal.innerHTML = `
+              <div class="acelc-success-banner">
+                ✓ Destination confirmed! Solution queued for upload.
+              </div>
+            `;
+            setTimeout(() => {
+              overlay.remove();
+            }, 1400);
+          } else {
+            confirmBtn.disabled = false;
+            cancelBtn.disabled = false;
+            confirmBtn.textContent = 'Upload Solution';
+            validationError.textContent = (response && response.error) || 'Failed to confirm destination selection.';
+            validationError.style.display = 'block';
+          }
+        }
+      );
+    };
+
+    cancelBtn.onclick = cancelModal;
+
+    actionsRow.appendChild(confirmBtn);
+    actionsRow.appendChild(cancelBtn);
+    modal.appendChild(actionsRow);
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+  }
+
+  // Listen for background worker messages to show destination modal
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message && message.action === Constants.MESSAGES.SHOW_DESTINATION_MODAL) {
+      console.log('[AceLC Content] Received SHOW_DESTINATION_MODAL for problem:', message.submission.problemSlug);
+      showDestinationModal(message.submission, message.repository, message.folders);
+      sendResponse({ success: true, shown: true });
+      return false;
+    }
+  });
+
+  // =========================================================================
+  // 8. SPA NAVIGATION & LEETCODE UI CHANGE HANDLING
   // =========================================================================
 
   function handlePageNavigation() {

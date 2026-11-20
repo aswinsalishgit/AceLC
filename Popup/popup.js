@@ -62,11 +62,31 @@ document.addEventListener('DOMContentLoaded', () => {
   const existingDirectoriesDropdown = document.getElementById('existingDirectoriesDropdown');
   const addExistingDirBtn = document.getElementById('addExistingDirBtn');
 
+  // DOM Elements - Destination Selection Interface (Phase 6)
+  const destSelectionCard = document.getElementById('destSelectionCard');
+  const destQueueBadge = document.getElementById('destQueueBadge');
+  const destProblemTitle = document.getElementById('destProblemTitle');
+  const destLanguageBadge = document.getElementById('destLanguageBadge');
+  const destRuntimeBadge = document.getElementById('destRuntimeBadge');
+  const destMemoryBadge = document.getElementById('destMemoryBadge');
+  const destRepoName = document.getElementById('destRepoName');
+  const destFoldersChecklist = document.getElementById('destFoldersChecklist');
+  const destSelectAllBtn = document.getElementById('destSelectAllBtn');
+  const destValidationMsg = document.getElementById('destValidationMsg');
+  const destConfirmBtn = document.getElementById('destConfirmBtn');
+  const destCancelBtn = document.getElementById('destCancelBtn');
+  const destQueueNav = document.getElementById('destQueueNav');
+  const destPrevBtn = document.getElementById('destPrevBtn');
+  const destNextBtn = document.getElementById('destNextBtn');
+  const destQueueNavText = document.getElementById('destQueueNavText');
+
   let activeVerificationUri = AceConstants.GITHUB.VERIFICATION_URL;
   let activeUserCode = '';
   let cachedRepositories = [];
   let currentSelectedRepo = null;
   let configuredFolders = [];
+  let pendingSubmissionsQueue = [];
+  let currentQueueIndex = 0;
 
   /**
    * Show feedback toast notification
@@ -598,6 +618,227 @@ document.addEventListener('DOMContentLoaded', () => {
 
   /**
    * =========================================================================
+   * DESTINATION SELECTION INTERFACE (PHASE 6)
+   * =========================================================================
+   */
+
+  /**
+   * Load and render the pending submissions destination selection queue
+   */
+  function loadPendingQueue() {
+    if (!destSelectionCard) return;
+
+    chrome.runtime.sendMessage({ action: AceConstants.MESSAGES.GET_PENDING_QUEUE }, (response) => {
+      if (chrome.runtime.lastError || !response || !response.success) {
+        destSelectionCard.classList.add('hidden');
+        return;
+      }
+
+      pendingSubmissionsQueue = Array.isArray(response.queue) ? response.queue : [];
+      const repository = response.repository || null;
+      const folders = Array.isArray(response.folders) ? response.folders : [];
+
+      if (pendingSubmissionsQueue.length === 0) {
+        destSelectionCard.classList.add('hidden');
+        return;
+      }
+
+      if (currentQueueIndex >= pendingSubmissionsQueue.length) {
+        currentQueueIndex = Math.max(0, pendingSubmissionsQueue.length - 1);
+      }
+
+      renderDestinationSelectionCard(repository, folders);
+    });
+  }
+
+  /**
+   * Render the destination selection card for the active queued submission
+   */
+  function renderDestinationSelectionCard(repository, folders) {
+    if (pendingSubmissionsQueue.length === 0) {
+      destSelectionCard.classList.add('hidden');
+      return;
+    }
+
+    destSelectionCard.classList.remove('hidden');
+
+    const item = pendingSubmissionsQueue[currentQueueIndex];
+    if (!item) return;
+
+    // 1. Problem Information
+    const numDisplay = item.problemNumber ? `#${item.problemNumber} ` : '';
+    destProblemTitle.textContent = `${numDisplay}${item.problemTitle}`;
+    destProblemTitle.title = `${numDisplay}${item.problemTitle}`;
+
+    destLanguageBadge.textContent = item.language || 'Unknown';
+
+    if (item.runtime) {
+      destRuntimeBadge.textContent = `⚡ ${item.runtime}`;
+      destRuntimeBadge.classList.remove('hidden');
+    } else {
+      destRuntimeBadge.classList.add('hidden');
+    }
+
+    if (item.memory) {
+      destMemoryBadge.textContent = `💾 ${item.memory}`;
+      destMemoryBadge.classList.remove('hidden');
+    } else {
+      destMemoryBadge.classList.add('hidden');
+    }
+
+    // 2. Destination Repository
+    destRepoName.textContent = repository ? repository.fullName : 'No repository selected';
+
+    // 3. Destination Folders Checklist
+    destFoldersChecklist.innerHTML = '';
+    destValidationMsg.classList.add('hidden');
+
+    if (folders.length === 0) {
+      destSelectAllBtn.style.display = 'none';
+      const emptyNote = document.createElement('div');
+      emptyNote.className = 'empty-folders-text';
+      emptyNote.textContent = 'No folders configured yet. Add folders in the section below.';
+      destFoldersChecklist.appendChild(emptyNote);
+    } else {
+      destSelectAllBtn.style.display = 'block';
+      destSelectAllBtn.textContent = 'Deselect All';
+
+      for (const folder of folders) {
+        const row = document.createElement('label');
+        row.className = 'dest-folder-item';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = folder;
+        cb.checked = true;
+
+        const name = document.createElement('span');
+        name.textContent = `📁 ${folder}`;
+
+        row.appendChild(cb);
+        row.appendChild(name);
+        destFoldersChecklist.appendChild(row);
+      }
+    }
+
+    // 4. Queue Navigation (if multiple pending submissions)
+    if (pendingSubmissionsQueue.length > 1) {
+      destQueueNav.classList.remove('hidden');
+      destQueueBadge.classList.remove('hidden');
+      destQueueBadge.textContent = `${currentQueueIndex + 1} of ${pendingSubmissionsQueue.length}`;
+      destQueueNavText.textContent = `Submission ${currentQueueIndex + 1} of ${pendingSubmissionsQueue.length}`;
+
+      destPrevBtn.disabled = currentQueueIndex === 0;
+      destNextBtn.disabled = currentQueueIndex === pendingSubmissionsQueue.length - 1;
+    } else {
+      destQueueNav.classList.add('hidden');
+      destQueueBadge.classList.add('hidden');
+    }
+  }
+
+  // Folder Checklist Toggle All
+  if (destSelectAllBtn) {
+    let allSelected = true;
+    destSelectAllBtn.addEventListener('click', () => {
+      const checkboxes = destFoldersChecklist.querySelectorAll('input[type="checkbox"]');
+      allSelected = !allSelected;
+      checkboxes.forEach((cb) => (cb.checked = allSelected));
+      destSelectAllBtn.textContent = allSelected ? 'Deselect All' : 'Select All';
+      if (allSelected) destValidationMsg.classList.add('hidden');
+    });
+  }
+
+  // Upload Solution Confirmation Button
+  if (destConfirmBtn) {
+    destConfirmBtn.addEventListener('click', () => {
+      if (pendingSubmissionsQueue.length === 0) return;
+      const item = pendingSubmissionsQueue[currentQueueIndex];
+      if (!item) return;
+
+      const checkedBoxes = destFoldersChecklist.querySelectorAll('input[type="checkbox"]:checked');
+      const selectedFolders = Array.from(checkedBoxes).map((cb) => cb.value);
+
+      // Validate at least one destination folder is selected
+      if (selectedFolders.length === 0) {
+        destValidationMsg.textContent = 'Please select at least one destination folder.';
+        destValidationMsg.classList.remove('hidden');
+        return;
+      }
+
+      destValidationMsg.classList.add('hidden');
+      destConfirmBtn.disabled = true;
+      destConfirmBtn.textContent = 'Confirming...';
+
+      chrome.runtime.sendMessage(
+        {
+          action: AceConstants.MESSAGES.CONFIRM_DESTINATION_SELECTION,
+          payload: {
+            submissionUid: item.uid,
+            selectedFolders: selectedFolders
+          }
+        },
+        (response) => {
+          destConfirmBtn.disabled = false;
+          destConfirmBtn.textContent = 'Upload Solution';
+
+          if (response && response.success) {
+            showToast('Destination confirmed! Solution queued for upload.');
+            loadPendingQueue();
+          } else {
+            const err = (response && response.error) || 'Failed to confirm destination selection.';
+            showToast(err, true);
+            destValidationMsg.textContent = err;
+            destValidationMsg.classList.remove('hidden');
+          }
+        }
+      );
+    });
+  }
+
+  // Cancel Pending Submission Button
+  if (destCancelBtn) {
+    destCancelBtn.addEventListener('click', () => {
+      if (pendingSubmissionsQueue.length === 0) return;
+      const item = pendingSubmissionsQueue[currentQueueIndex];
+      if (!item) return;
+
+      chrome.runtime.sendMessage(
+        {
+          action: AceConstants.MESSAGES.CANCEL_DESTINATION_SELECTION,
+          payload: {
+            submissionUid: item.uid
+          }
+        },
+        (response) => {
+          showToast('Submission cancelled.');
+          loadPendingQueue();
+        }
+      );
+    });
+  }
+
+  // Queue Pagination Prev Button
+  if (destPrevBtn) {
+    destPrevBtn.addEventListener('click', () => {
+      if (currentQueueIndex > 0) {
+        currentQueueIndex -= 1;
+        loadPendingQueue();
+      }
+    });
+  }
+
+  // Queue Pagination Next Button
+  if (destNextBtn) {
+    destNextBtn.addEventListener('click', () => {
+      if (currentQueueIndex < pendingSubmissionsQueue.length - 1) {
+        currentQueueIndex += 1;
+        loadPendingQueue();
+      }
+    });
+  }
+
+  /**
+   * =========================================================================
    * AUTHENTICATION & GLOBAL HANDLERS
    * =========================================================================
    */
@@ -768,9 +1009,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (changes[AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS]) {
       loadDestinationFolders();
+      loadPendingQueue();
+    }
+
+    if (changes[AceConstants.STORAGE_KEYS.PENDING_SUBMISSION_QUEUE]) {
+      loadPendingQueue();
     }
   });
 
   // Initial status load
   refreshAuthStatus();
+  loadPendingQueue();
 });
