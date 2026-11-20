@@ -689,6 +689,9 @@ async function createRepository({ name, description, isPrivate }) {
     const data = await response.json();
 
     if (!response.ok) {
+      if (response.status === 401) {
+        return { success: false, error: 'GitHub session expired. Please reconnect your account.' };
+      }
       if (response.status === 422) {
         let details = 'Validation error';
         if (data.errors && Array.isArray(data.errors) && data.errors.length > 0) {
@@ -801,6 +804,10 @@ async function fetchRepoDirectories() {
         'X-GitHub-Api-Version': '2022-11-28'
       }
     });
+
+    if (response.status === 401) {
+      return { success: false, error: 'GitHub session expired. Please reconnect your account.' };
+    }
 
     // 409 Conflict: Git Repository is empty
     // 404 Not Found: Branch does not exist or empty repo without commits
@@ -993,6 +1000,10 @@ async function checkFileExists(token, fullName, filePath, branch) {
       return { exists: false, sha: null, error: null };
     }
 
+    if (response.status === 401) {
+      return { exists: false, sha: null, error: 'GitHub session expired. Please reconnect your account.' };
+    }
+
     if (response.status === 403) {
       const data = await response.json().catch(() => ({}));
       // Rate limit
@@ -1047,6 +1058,10 @@ async function uploadFileToGitHub(token, fullName, filePath, branch, content, co
       },
       body: JSON.stringify(body)
     });
+
+    if (response.status === 401) {
+      return { exists: false, sha: null, error: 'GitHub session expired. Please reconnect your account.' };
+    }
 
     if (response.status === 403) {
       const data = await response.json().catch(() => ({}));
