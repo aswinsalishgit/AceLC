@@ -37,11 +37,18 @@ const AceConstants = Object.freeze({
     DISCONNECT_AUTH: 'ACE_DISCONNECT_AUTH',
     GET_AUTH_STATUS: 'ACE_GET_AUTH_STATUS',
 
-    // Repository actions
+    // Repository actions (Phase 3)
     GET_REPOSITORIES: 'ACE_GET_REPOSITORIES',
     CREATE_REPOSITORY: 'ACE_CREATE_REPOSITORY',
     SELECT_REPOSITORY: 'ACE_SELECT_REPOSITORY',
     GET_SELECTED_REPO: 'ACE_GET_SELECTED_REPO',
+
+    // Folder actions (Phase 4)
+    GET_REPO_DIRECTORIES: 'ACE_GET_REPO_DIRECTORIES',
+    GET_DESTINATION_FOLDERS: 'ACE_GET_DESTINATION_FOLDERS',
+    ADD_DESTINATION_FOLDER: 'ACE_ADD_DESTINATION_FOLDER',
+    REMOVE_DESTINATION_FOLDER: 'ACE_REMOVE_DESTINATION_FOLDER',
+    SET_DESTINATION_FOLDERS: 'ACE_SET_DESTINATION_FOLDERS',
 
     // Core actions
     SUBMISSION_DETECTED: 'ACE_SUBMISSION_DETECTED',
@@ -56,6 +63,7 @@ const AceConstants = Object.freeze({
     TOKEN_URL: 'https://github.com/login/oauth/access_token',
     USER_API_URL: 'https://api.github.com/user',
     USER_REPOS_URL: 'https://api.github.com/user/repos',
+    REPOS_API_URL: 'https://api.github.com/repos',
     SCOPES: 'repo',
     VERIFICATION_URL: 'https://github.com/login/device'
   },

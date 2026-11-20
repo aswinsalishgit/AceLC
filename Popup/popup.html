@@ -99,7 +99,7 @@
         </button>
       </section>
 
-      <!-- STATE: SUCCESSFULLY CONNECTED (PHASE 2 & PHASE 3) -->
+      <!-- STATE: SUCCESSFULLY CONNECTED (PHASE 2, 3 & 4) -->
       <section id="stateConnected" class="state-card hidden">
         <div class="card-header">
           <div class="status-indicator">
@@ -117,10 +117,10 @@
           </div>
         </div>
 
-        <!-- REPOSITORY MANAGEMENT SECTION (PHASE 3) -->
+        <!-- REPOSITORY & FOLDER MANAGEMENT SECTION -->
         <div class="repo-section">
           
-          <!-- View 1: Active Selected Repository -->
+          <!-- View 1: Active Selected Repository & Folder Management (Phase 4) -->
           <div id="repoActiveView" class="repo-card hidden">
             <div class="repo-card-header">
               <span class="repo-card-title">Destination Repository</span>
@@ -132,10 +132,57 @@
               </svg>
               <a id="repoNameLink" class="repo-link" href="#" target="_blank" rel="noopener"></a>
             </div>
-            <p class="repo-helper-text">Ready for destination folders setup.</p>
+            
             <button id="changeRepoBtn" class="btn btn-secondary btn-sm" type="button">
               Change Repository
             </button>
+
+            <!-- FOLDER MANAGEMENT (PHASE 4) -->
+            <hr class="divider">
+
+            <div class="folders-header">
+              <span class="repo-card-title">Destination Folders</span>
+              <span id="foldersCountBadge" class="folder-count-badge">0 configured</span>
+            </div>
+            <p class="repo-helper-text">Configure one or more destination folders for solutions.</p>
+
+            <!-- Configured Folders Tags List -->
+            <div id="configuredFoldersList" class="folder-tags-container">
+              <p class="empty-folders-text">No folders configured yet. Add one below.</p>
+            </div>
+
+            <!-- Add New Destination Folder Form -->
+            <div class="add-folder-group">
+              <label for="newFolderInput" class="label-text">Add Folder Path</label>
+              <div class="add-folder-row">
+                <input 
+                  type="text" 
+                  id="newFolderInput" 
+                  class="input-field" 
+                  placeholder="e.g. Easy or Algorithms/TwoSum"
+                  autocomplete="off"
+                  spellcheck="false"
+                >
+                <button id="addFolderBtn" class="btn btn-primary btn-sm" type="button">
+                  Add
+                </button>
+              </div>
+              <span id="folderValidationMsg" class="validation-msg hidden"></span>
+            </div>
+
+            <!-- Existing GitHub Directories Picker -->
+            <div id="existingDirectoriesGroup" class="form-group hidden">
+              <label for="existingDirectoriesDropdown" class="label-text">Or Pick Existing GitHub Folder</label>
+              <div class="add-folder-row">
+                <select id="existingDirectoriesDropdown" class="select-field">
+                  <option value="">-- Choose existing folder --</option>
+                </select>
+                <button id="addExistingDirBtn" class="btn btn-secondary btn-sm" type="button" disabled>
+                  Add
+                </button>
+              </div>
+            </div>
+
           </div>
 
           <!-- View 2: Repository Configuration (Select or Create) -->

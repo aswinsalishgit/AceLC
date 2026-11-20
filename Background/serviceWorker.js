@@ -1,6 +1,7 @@
 /**
  * AceLC - Background Service Worker
- * Manages extension state, cross-component messaging, GitHub OAuth, and Repository Management.
+ * Manages extension state, cross-component messaging, GitHub OAuth,
+ * Repository Management, and Destination Folder Management.
  */
 
 // Load shared constants into service worker scope
@@ -20,7 +21,6 @@ let isPollingActive = false;
 chrome.runtime.onInstalled.addListener((details) => {
   console.log('[AceLC Background] Extension installed/updated. Reason:', details.reason);
 
-  // Initialize default storage values if not already present
   chrome.storage.local.get(
     [
       AceConstants.STORAGE_KEYS.IS_ACTIVATED,
@@ -116,6 +116,54 @@ function validateRepoName(name) {
   if (trimmed.toLowerCase().endsWith('.git')) {
     return 'Repository name cannot end with .git.';
   }
+  return null;
+}
+
+/**
+ * Normalize a folder path by trimming, cleaning slashes, and removing duplicate separators
+ * @param {string} path 
+ * @returns {string} Normalized path (e.g. "Easy" or "Algorithms/TwoSum")
+ */
+function normalizeFolderPath(path) {
+  if (!path || typeof path !== 'string') return '';
+  return path
+    .trim()
+    .replace(/\\+/g, '/') // replace backslashes with forward slashes
+    .replace(/^\/+|\/+$/g, '') // remove leading & trailing slashes
+    .replace(/\/+/g, '/'); // collapse consecutive slashes
+}
+
+/**
+ * Validate a destination folder path
+ * @param {string} path 
+ * @returns {string|null} Error message if invalid, null if valid
+ */
+function validateFolderPath(path) {
+  const normalized = normalizeFolderPath(path);
+  if (!normalized) {
+    return 'Folder path cannot be empty.';
+  }
+  if (normalized.length > 200) {
+    return 'Folder path is too long (maximum 200 characters).';
+  }
+
+  const segments = normalized.split('/');
+  for (const seg of segments) {
+    const trimmedSeg = seg.trim();
+    if (!trimmedSeg) {
+      return 'Folder path contains an empty segment.';
+    }
+    if (trimmedSeg === '.' || trimmedSeg === '..') {
+      return 'Folder path cannot contain "." or ".." segments.';
+    }
+    if (trimmedSeg.toLowerCase() === '.git') {
+      return 'Folder path cannot contain ".git".';
+    }
+    if (!/^[a-zA-Z0-9_\-. ]+$/.test(trimmedSeg)) {
+      return 'Folder names can only contain letters, numbers, hyphens, underscores, dots, and spaces.';
+    }
+  }
+
   return null;
 }
 
@@ -470,7 +518,7 @@ async function cancelDeviceFlow() {
 }
 
 /**
- * Disconnect GitHub account and purge stored credentials and selected repository
+ * Disconnect GitHub account and purge stored credentials, repo, and folders
  */
 async function disconnectGitHub() {
   activePollId += 1;
@@ -478,12 +526,14 @@ async function disconnectGitHub() {
   await chrome.storage.local.remove([
     AceConstants.STORAGE_KEYS.AUTH_TOKEN,
     AceConstants.STORAGE_KEYS.USER_INFO,
-    AceConstants.STORAGE_KEYS.SELECTED_REPO
+    AceConstants.STORAGE_KEYS.SELECTED_REPO,
+    AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS
   ]);
   await chrome.storage.local.set({
     [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
       status: AceConstants.AUTH_STATUS.NOT_CONNECTED
-    }
+    },
+    [AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS]: []
   });
   console.log('[AceLC Background] GitHub account disconnected. Storage cleared.');
   return { success: true };
@@ -533,7 +583,6 @@ async function getAuthStatus() {
 
 /**
  * Retrieve all repositories owned by the authenticated user with pagination support
- * @returns {Promise<{success: boolean, repositories?: Array, error?: string}>}
  */
 async function fetchUserRepositories() {
   const token = await getStoredToken();
@@ -545,7 +594,7 @@ async function fetchUserRepositories() {
   let page = 1;
   const perPage = 100;
   let hasMore = true;
-  const maxPages = 10; // safety limit to fetch up to 1,000 repos
+  const maxPages = 10;
 
   try {
     while (hasMore && page <= maxPages) {
@@ -598,8 +647,6 @@ async function fetchUserRepositories() {
 
 /**
  * Create a new repository for the authenticated user
- * @param {{name: string, description?: string, isPrivate: boolean}} params
- * @returns {Promise<{success: boolean, repository?: Object, error?: string}>}
  */
 async function createRepository({ name, description, isPrivate }) {
   const token = await getStoredToken();
@@ -607,7 +654,6 @@ async function createRepository({ name, description, isPrivate }) {
     return { success: false, error: 'Not authenticated with GitHub.' };
   }
 
-  // Validate repository name
   const validationError = validateRepoName(name);
   if (validationError) {
     return { success: false, error: validationError };
@@ -617,7 +663,7 @@ async function createRepository({ name, description, isPrivate }) {
     name: name.trim(),
     description: (description || '').trim(),
     private: Boolean(isPrivate),
-    auto_init: true // Initializes repository with README so default branch exists
+    auto_init: true
   };
 
   try {
@@ -658,9 +704,10 @@ async function createRepository({ name, description, isPrivate }) {
       description: data.description || ''
     };
 
-    // Automatically select the newly created repository
+    // Selecting new repo resets destination folders to prevent invalid folders
     await chrome.storage.local.set({
-      [AceConstants.STORAGE_KEYS.SELECTED_REPO]: createdRepo
+      [AceConstants.STORAGE_KEYS.SELECTED_REPO]: createdRepo,
+      [AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS]: []
     });
 
     console.log(`[AceLC Background] Created and selected repository: ${createdRepo.fullName}`);
@@ -671,19 +718,31 @@ async function createRepository({ name, description, isPrivate }) {
 }
 
 /**
- * Save selected repository configuration
- * @param {Object} repo 
+ * Save selected repository configuration.
+ * Resets configured destination folders if switching to a different repository.
  */
 async function selectRepository(repo) {
   if (!repo || !repo.fullName || !repo.name) {
     return { success: false, error: 'Invalid repository data.' };
   }
 
-  await chrome.storage.local.set({
-    [AceConstants.STORAGE_KEYS.SELECTED_REPO]: repo
-  });
+  const current = await chrome.storage.local.get([
+    AceConstants.STORAGE_KEYS.SELECTED_REPO,
+    AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS
+  ]);
 
-  console.log(`[AceLC Background] Selected repository saved: ${repo.fullName}`);
+  const currentRepo = current[AceConstants.STORAGE_KEYS.SELECTED_REPO];
+  const updates = {
+    [AceConstants.STORAGE_KEYS.SELECTED_REPO]: repo
+  };
+
+  // Reset destination folders if repository changed
+  if (!currentRepo || currentRepo.fullName !== repo.fullName) {
+    updates[AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS] = [];
+    console.log(`[AceLC Background] Switched repository to ${repo.fullName}. Destination folders reset.`);
+  }
+
+  await chrome.storage.local.set(updates);
   return { success: true, repository: repo };
 }
 
@@ -696,6 +755,160 @@ async function getSelectedRepository() {
     success: true,
     repository: result[AceConstants.STORAGE_KEYS.SELECTED_REPO] || null
   };
+}
+
+/**
+ * =========================================================================
+ * FOLDER MANAGEMENT (PHASE 4)
+ * =========================================================================
+ */
+
+/**
+ * Retrieve existing directories in the selected repository using GitHub Git Trees API
+ * @returns {Promise<{success: boolean, directories?: Array<string>, isEmpty?: boolean, error?: string}>}
+ */
+async function fetchRepoDirectories() {
+  const token = await getStoredToken();
+  if (!token) {
+    return { success: false, error: 'Not authenticated with GitHub.' };
+  }
+
+  const result = await chrome.storage.local.get(AceConstants.STORAGE_KEYS.SELECTED_REPO);
+  const selectedRepo = result[AceConstants.STORAGE_KEYS.SELECTED_REPO];
+  if (!selectedRepo || !selectedRepo.owner || !selectedRepo.name) {
+    return { success: false, error: 'No repository selected.' };
+  }
+
+  const owner = selectedRepo.owner;
+  const repo = selectedRepo.name;
+  const defaultBranch = selectedRepo.defaultBranch || 'main';
+
+  try {
+    // Attempt recursive git tree fetch using default branch
+    const url = `${AceConstants.GITHUB.REPOS_API_URL}/${owner}/${repo}/git/trees/${encodeURIComponent(defaultBranch)}?recursive=1`;
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': `Bearer ${token}`,
+        'X-GitHub-Api-Version': '2022-11-28'
+      }
+    });
+
+    // 409 Conflict: Git Repository is empty
+    // 404 Not Found: Branch does not exist or empty repo without commits
+    if (response.status === 409 || response.status === 404) {
+      return { success: true, directories: [], isEmpty: true };
+    }
+
+    if (!response.ok) {
+      return { success: false, error: `Failed to fetch repository tree (${response.status})` };
+    }
+
+    const data = await response.json();
+    const directories = [];
+
+    if (Array.isArray(data.tree)) {
+      for (const item of data.tree) {
+        if (item.type === 'tree' && item.path) {
+          directories.push(item.path);
+        }
+      }
+    }
+
+    directories.sort((a, b) => a.localeCompare(b));
+    return { success: true, directories: directories, isEmpty: false };
+  } catch (err) {
+    return { success: false, error: err.message || 'Network error fetching repository directories.' };
+  }
+}
+
+/**
+ * Retrieve all currently configured destination folders
+ */
+async function getDestinationFolders() {
+  const result = await chrome.storage.local.get(AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS);
+  const folders = Array.isArray(result[AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS])
+    ? result[AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS]
+    : [];
+
+  return { success: true, folders };
+}
+
+/**
+ * Add a new destination folder path to the configured destinations
+ * @param {string} rawPath 
+ */
+async function addDestinationFolder(rawPath) {
+  const validationError = validateFolderPath(rawPath);
+  if (validationError) {
+    return { success: false, error: validationError };
+  }
+
+  const normalizedPath = normalizeFolderPath(rawPath);
+  const result = await chrome.storage.local.get(AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS);
+  const currentFolders = Array.isArray(result[AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS])
+    ? result[AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS]
+    : [];
+
+  // Avoid duplicates
+  if (currentFolders.includes(normalizedPath)) {
+    return { success: false, error: `Folder "${normalizedPath}" is already configured.` };
+  }
+
+  const updatedFolders = [...currentFolders, normalizedPath];
+  await chrome.storage.local.set({
+    [AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS]: updatedFolders
+  });
+
+  console.log(`[AceLC Background] Added destination folder: ${normalizedPath}`);
+  return { success: true, folders: updatedFolders };
+}
+
+/**
+ * Remove a destination folder path from the configured destinations
+ * @param {string} rawPath 
+ */
+async function removeDestinationFolder(rawPath) {
+  const normalizedPath = normalizeFolderPath(rawPath);
+  const result = await chrome.storage.local.get(AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS);
+  const currentFolders = Array.isArray(result[AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS])
+    ? result[AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS]
+    : [];
+
+  const updatedFolders = currentFolders.filter((f) => f !== normalizedPath);
+  await chrome.storage.local.set({
+    [AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS]: updatedFolders
+  });
+
+  console.log(`[AceLC Background] Removed destination folder: ${normalizedPath}`);
+  return { success: true, folders: updatedFolders };
+}
+
+/**
+ * Overwrite all destination folders with a new list
+ * @param {Array<string>} foldersArray 
+ */
+async function setDestinationFolders(foldersArray) {
+  if (!Array.isArray(foldersArray)) {
+    return { success: false, error: 'Invalid folders list.' };
+  }
+
+  const cleaned = [];
+  for (const item of foldersArray) {
+    const err = validateFolderPath(item);
+    if (!err) {
+      const norm = normalizeFolderPath(item);
+      if (!cleaned.includes(norm)) {
+        cleaned.push(norm);
+      }
+    }
+  }
+
+  await chrome.storage.local.set({
+    [AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS]: cleaned
+  });
+
+  return { success: true, folders: cleaned };
 }
 
 /**
@@ -754,12 +967,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Folder actions (Phase 4)
+  if (message.action === AceConstants.MESSAGES.GET_REPO_DIRECTORIES) {
+    fetchRepoDirectories().then(sendResponse);
+    return true;
+  }
+
+  if (message.action === AceConstants.MESSAGES.GET_DESTINATION_FOLDERS) {
+    getDestinationFolders().then(sendResponse);
+    return true;
+  }
+
+  if (message.action === AceConstants.MESSAGES.ADD_DESTINATION_FOLDER) {
+    addDestinationFolder(message.folderPath).then(sendResponse);
+    return true;
+  }
+
+  if (message.action === AceConstants.MESSAGES.REMOVE_DESTINATION_FOLDER) {
+    removeDestinationFolder(message.folderPath).then(sendResponse);
+    return true;
+  }
+
+  if (message.action === AceConstants.MESSAGES.SET_DESTINATION_FOLDERS) {
+    setDestinationFolders(message.folders || []).then(sendResponse);
+    return true;
+  }
+
   if (message.action === AceConstants.MESSAGES.GET_STATUS) {
     sendResponse({
       success: true,
       name: AceConstants.EXTENSION_NAME,
       version: AceConstants.VERSION,
-      phase: 'Phase 3: GitHub Repository Management'
+      phase: 'Phase 4: Repository Folder Management'
     });
     return false;
   }

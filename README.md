@@ -9,7 +9,8 @@ Built by [CodeGab](https://github.com/CodeGab) to make tracking and managing cod
 - **Manifest V3 Foundation** - Service worker lifecycle and storage persistence setup.
 - **GitHub Authentication** - Connect and disconnect GitHub accounts securely using OAuth Device Flow.
 - **Repository Management** - Retrieve, select existing, or create new public and private GitHub repositories.
-- **Extension Popup** - Multi-state interface for authorization codes, approval checks, repository selection, and user profile display.
+- **Destination Folder Management** - Configure multiple destination folders per repository, with support for custom paths and existing GitHub directories.
+- **Extension Popup** - Multi-state interface for authorization codes, approval checks, repository selection, folder configuration, and user profile display.
 - **Options Management** - Dedicated settings page for OAuth application configuration and destination repository settings.
 - **LeetCode Detection Hook** - Content script targeting LeetCode problem pages.
 - **Shared Architecture** - Unified constants and messaging protocol across components.
@@ -34,7 +35,7 @@ To load the extension locally in Google Chrome:
 
 ## Project Status
 
-AceLC is currently under development. Phase 3 (GitHub Repository Management) is complete.
+AceLC is currently under development. Phase 4 (Repository Folder Management) is complete.
 
 ## Contributing
 

@@ -1,6 +1,7 @@
 /**
  * AceLC - Popup Script
- * Coordinates GitHub authentication UI states, user actions, and repository selection.
+ * Coordinates GitHub authentication UI states, user actions, repository selection,
+ * and destination folder management.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -51,10 +52,21 @@ document.addEventListener('DOMContentLoaded', () => {
   const submitCreateRepoBtn = document.getElementById('submitCreateRepoBtn');
   const cancelCreateModeBtn = document.getElementById('cancelCreateModeBtn');
 
+  // DOM Elements - Folder Management (Phase 4)
+  const foldersCountBadge = document.getElementById('foldersCountBadge');
+  const configuredFoldersList = document.getElementById('configuredFoldersList');
+  const newFolderInput = document.getElementById('newFolderInput');
+  const addFolderBtn = document.getElementById('addFolderBtn');
+  const folderValidationMsg = document.getElementById('folderValidationMsg');
+  const existingDirectoriesGroup = document.getElementById('existingDirectoriesGroup');
+  const existingDirectoriesDropdown = document.getElementById('existingDirectoriesDropdown');
+  const addExistingDirBtn = document.getElementById('addExistingDirBtn');
+
   let activeVerificationUri = AceConstants.GITHUB.VERIFICATION_URL;
   let activeUserCode = '';
   let cachedRepositories = [];
   let currentSelectedRepo = null;
+  let configuredFolders = [];
 
   /**
    * Show feedback toast notification
@@ -111,6 +123,28 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   /**
+   * Client-side folder path validation
+   */
+  function validateFolderPathInput(path) {
+    if (!path || typeof path !== 'string') return 'Folder path cannot be empty.';
+    const cleaned = path.trim().replace(/\\+/g, '/').replace(/^\/+|\/+$/g, '');
+    if (!cleaned) return 'Folder path cannot be empty.';
+    if (cleaned.length > 200) return 'Folder path cannot exceed 200 characters.';
+
+    const segments = cleaned.split('/');
+    for (const seg of segments) {
+      const trimmedSeg = seg.trim();
+      if (!trimmedSeg) return 'Path contains an empty segment.';
+      if (trimmedSeg === '.' || trimmedSeg === '..') return 'Path cannot contain "." or "..".';
+      if (trimmedSeg.toLowerCase() === '.git') return 'Path cannot contain ".git".';
+      if (!/^[a-zA-Z0-9_\-. ]+$/.test(trimmedSeg)) {
+        return 'Only letters, numbers, hyphens, underscores, dots, and spaces allowed.';
+      }
+    }
+    return null;
+  }
+
+  /**
    * Render Connected State
    */
   function renderConnected(user) {
@@ -156,7 +190,7 @@ document.addEventListener('DOMContentLoaded', () => {
    */
 
   /**
-   * Render active selected repository card
+   * Render active selected repository card and initialize folder management
    */
   function renderSelectedRepo(repo) {
     currentSelectedRepo = repo;
@@ -171,6 +205,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
       repoActiveView.classList.remove('hidden');
       repoConfigView.classList.add('hidden');
+
+      // Load folder structure and configured destination folders (Phase 4)
+      loadDestinationFolders();
+      loadExistingDirectories();
     } else {
       repoActiveView.classList.add('hidden');
       repoConfigView.classList.remove('hidden');
@@ -179,9 +217,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  /**
-   * Show Select Mode in Repo Config View
-   */
   function showSelectMode() {
     repoSelectMode.classList.remove('hidden');
     repoCreateMode.classList.add('hidden');
@@ -194,9 +229,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  /**
-   * Show Create Mode in Repo Config View
-   */
   function showCreateMode() {
     repoSelectMode.classList.add('hidden');
     repoCreateMode.classList.remove('hidden');
@@ -206,9 +238,6 @@ document.addEventListener('DOMContentLoaded', () => {
     createRepoErrorMsg.classList.add('hidden');
   }
 
-  /**
-   * Retrieve currently selected repository from storage via background
-   */
   function loadSelectedRepository() {
     chrome.runtime.sendMessage({ action: AceConstants.MESSAGES.GET_SELECTED_REPO }, (response) => {
       if (response && response.success) {
@@ -219,9 +248,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  /**
-   * Fetch user repositories from background and populate dropdown
-   */
   function loadUserRepositories() {
     repoDropdown.innerHTML = '<option value="">-- Loading repositories... --</option>';
     confirmSelectRepoBtn.disabled = true;
@@ -257,19 +283,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  /**
-   * Dropdown change handler
-   */
   if (repoDropdown) {
     repoDropdown.addEventListener('change', () => {
-      const selectedValue = repoDropdown.value;
-      confirmSelectRepoBtn.disabled = !selectedValue;
+      confirmSelectRepoBtn.disabled = !repoDropdown.value;
     });
   }
 
-  /**
-   * Confirm repository selection
-   */
   if (confirmSelectRepoBtn) {
     confirmSelectRepoBtn.addEventListener('click', () => {
       const selectedFullName = repoDropdown.value;
@@ -303,9 +322,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  /**
-   * Change repository button handler
-   */
   if (changeRepoBtn) {
     changeRepoBtn.addEventListener('click', () => {
       repoActiveView.classList.add('hidden');
@@ -315,9 +331,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  /**
-   * Cancel repository change
-   */
   if (cancelChangeRepoBtn) {
     cancelChangeRepoBtn.addEventListener('click', () => {
       if (currentSelectedRepo) {
@@ -326,27 +339,18 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  /**
-   * Switch to Create Mode
-   */
   if (switchToCreateRepoBtn) {
     switchToCreateRepoBtn.addEventListener('click', () => {
       showCreateMode();
     });
   }
 
-  /**
-   * Cancel Create Mode (back to Selection)
-   */
   if (cancelCreateModeBtn) {
     cancelCreateModeBtn.addEventListener('click', () => {
       showSelectMode();
     });
   }
 
-  /**
-   * Real-time repository name input validation
-   */
   if (newRepoName) {
     newRepoName.addEventListener('input', () => {
       const err = validateRepoNameInput(newRepoName.value);
@@ -359,9 +363,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  /**
-   * Submit Create New Repository
-   */
   if (submitCreateRepoBtn) {
     submitCreateRepoBtn.addEventListener('click', () => {
       const name = newRepoName.value.trim();
@@ -406,9 +407,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  /**
-   * Refresh repository list
-   */
   if (refreshReposBtn) {
     refreshReposBtn.addEventListener('click', () => {
       loadUserRepositories();
@@ -417,8 +415,193 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   /**
-   * Refresh view based on background status
+   * =========================================================================
+   * FOLDER MANAGEMENT LOGIC (PHASE 4)
+   * =========================================================================
    */
+
+  /**
+   * Load and render currently configured destination folders
+   */
+  function loadDestinationFolders() {
+    chrome.runtime.sendMessage({ action: AceConstants.MESSAGES.GET_DESTINATION_FOLDERS }, (response) => {
+      if (response && response.success && Array.isArray(response.folders)) {
+        configuredFolders = response.folders;
+      } else {
+        configuredFolders = [];
+      }
+      renderDestinationFoldersList();
+    });
+  }
+
+  /**
+   * Render destination folder tags
+   */
+  function renderDestinationFoldersList() {
+    configuredFoldersList.innerHTML = '';
+    const count = configuredFolders.length;
+    foldersCountBadge.textContent = `${count} configured`;
+
+    if (count === 0) {
+      const emptyNote = document.createElement('p');
+      emptyNote.className = 'empty-folders-text';
+      emptyNote.textContent = 'No folders configured yet. Add one below.';
+      configuredFoldersList.appendChild(emptyNote);
+      return;
+    }
+
+    for (const folder of configuredFolders) {
+      const tag = document.createElement('div');
+      tag.className = 'folder-tag';
+
+      const icon = document.createElement('span');
+      icon.className = 'folder-icon';
+      icon.textContent = '📁';
+
+      const name = document.createElement('span');
+      name.className = 'folder-tag-name';
+      name.textContent = folder;
+      name.title = folder;
+
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'folder-remove-btn';
+      removeBtn.innerHTML = '&times;';
+      removeBtn.title = `Remove ${folder}`;
+      removeBtn.type = 'button';
+      removeBtn.addEventListener('click', () => {
+        handleRemoveFolder(folder);
+      });
+
+      tag.appendChild(icon);
+      tag.appendChild(name);
+      tag.appendChild(removeBtn);
+      configuredFoldersList.appendChild(tag);
+    }
+  }
+
+  /**
+   * Handle adding a destination folder
+   */
+  function handleAddFolder(folderPath) {
+    const error = validateFolderPathInput(folderPath);
+    if (error) {
+      if (folderValidationMsg) {
+        folderValidationMsg.textContent = error;
+        folderValidationMsg.classList.remove('hidden');
+      }
+      return;
+    }
+
+    if (folderValidationMsg) {
+      folderValidationMsg.classList.add('hidden');
+    }
+
+    chrome.runtime.sendMessage(
+      {
+        action: AceConstants.MESSAGES.ADD_DESTINATION_FOLDER,
+        folderPath: folderPath
+      },
+      (response) => {
+        if (response && response.success) {
+          showToast(`Added folder: ${folderPath}`);
+          if (newFolderInput) newFolderInput.value = '';
+          configuredFolders = response.folders || [];
+          renderDestinationFoldersList();
+        } else {
+          const err = (response && response.error) || 'Failed to add folder.';
+          showToast(err, true);
+          if (folderValidationMsg) {
+            folderValidationMsg.textContent = err;
+            folderValidationMsg.classList.remove('hidden');
+          }
+        }
+      }
+    );
+  }
+
+  /**
+   * Handle removing a destination folder
+   */
+  function handleRemoveFolder(folderPath) {
+    chrome.runtime.sendMessage(
+      {
+        action: AceConstants.MESSAGES.REMOVE_DESTINATION_FOLDER,
+        folderPath: folderPath
+      },
+      (response) => {
+        if (response && response.success) {
+          showToast(`Removed folder: ${folderPath}`);
+          configuredFolders = response.folders || [];
+          renderDestinationFoldersList();
+        } else {
+          showToast('Failed to remove folder.', true);
+        }
+      }
+    );
+  }
+
+  /**
+   * Fetch existing directories in the repository and populate dropdown
+   */
+  function loadExistingDirectories() {
+    if (!existingDirectoriesGroup || !existingDirectoriesDropdown) return;
+
+    chrome.runtime.sendMessage({ action: AceConstants.MESSAGES.GET_REPO_DIRECTORIES }, (response) => {
+      if (response && response.success && Array.isArray(response.directories) && response.directories.length > 0) {
+        existingDirectoriesDropdown.innerHTML = '<option value="">-- Choose existing folder --</option>';
+
+        for (const dir of response.directories) {
+          const opt = document.createElement('option');
+          opt.value = dir;
+          opt.textContent = `📁 ${dir}`;
+          existingDirectoriesDropdown.appendChild(opt);
+        }
+
+        existingDirectoriesGroup.classList.remove('hidden');
+      } else {
+        existingDirectoriesGroup.classList.add('hidden');
+      }
+    });
+  }
+
+  if (addFolderBtn && newFolderInput) {
+    addFolderBtn.addEventListener('click', () => {
+      handleAddFolder(newFolderInput.value);
+    });
+
+    newFolderInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleAddFolder(newFolderInput.value);
+      }
+    });
+
+    newFolderInput.addEventListener('input', () => {
+      if (folderValidationMsg) {
+        folderValidationMsg.classList.add('hidden');
+      }
+    });
+  }
+
+  if (existingDirectoriesDropdown && addExistingDirBtn) {
+    existingDirectoriesDropdown.addEventListener('change', () => {
+      addExistingDirBtn.disabled = !existingDirectoriesDropdown.value;
+    });
+
+    addExistingDirBtn.addEventListener('click', () => {
+      const selectedDir = existingDirectoriesDropdown.value;
+      if (selectedDir) {
+        handleAddFolder(selectedDir);
+      }
+    });
+  }
+
+  /**
+   * =========================================================================
+   * AUTHENTICATION & GLOBAL HANDLERS
+   * =========================================================================
+   */
+
   async function refreshAuthStatus() {
     chrome.runtime.sendMessage({ action: AceConstants.MESSAGES.GET_AUTH_STATUS }, (response) => {
       if (chrome.runtime.lastError || !response || !response.success) {
@@ -442,9 +625,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  /**
-   * Handle Connect Button Click
-   */
   if (connectBtn) {
     connectBtn.addEventListener('click', async () => {
       const customClientId = clientIdInput ? clientIdInput.value.trim() : '';
@@ -484,9 +664,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  /**
-   * Handle Copy Code Button Click
-   */
   if (copyCodeBtn) {
     copyCodeBtn.addEventListener('click', async () => {
       if (!activeUserCode) return;
@@ -503,9 +680,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  /**
-   * Handle Open GitHub Verification Page
-   */
   if (openVerifyBtn) {
     openVerifyBtn.addEventListener('click', () => {
       const url = activeVerificationUri || AceConstants.GITHUB.VERIFICATION_URL;
@@ -513,9 +687,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  /**
-   * Handle Immediate Approval Check Button Click
-   */
   if (checkAuthBtn) {
     checkAuthBtn.addEventListener('click', () => {
       checkAuthBtn.disabled = true;
@@ -546,9 +717,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  /**
-   * Handle Cancel Authorization Button
-   */
   if (cancelAuthBtn) {
     cancelAuthBtn.addEventListener('click', () => {
       chrome.runtime.sendMessage({ action: AceConstants.MESSAGES.CANCEL_AUTH }, () => {
@@ -557,18 +725,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  /**
-   * Handle Retry Authorization Button
-   */
   if (retryAuthBtn) {
     retryAuthBtn.addEventListener('click', () => {
       setViewState(AceConstants.AUTH_STATUS.NOT_CONNECTED);
     });
   }
 
-  /**
-   * Handle Disconnect Button Click
-   */
   if (disconnectBtn) {
     disconnectBtn.addEventListener('click', () => {
       chrome.runtime.sendMessage({ action: AceConstants.MESSAGES.DISCONNECT_AUTH }, (response) => {
@@ -580,9 +742,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  /**
-   * Handle Open Options Page
-   */
   if (openOptionsBtn) {
     openOptionsBtn.addEventListener('click', () => {
       if (chrome.runtime.openOptionsPage) {
@@ -605,6 +764,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (changes[AceConstants.STORAGE_KEYS.SELECTED_REPO]) {
       loadSelectedRepository();
+    }
+
+    if (changes[AceConstants.STORAGE_KEYS.DESTINATION_FOLDERS]) {
+      loadDestinationFolders();
     }
   });
 

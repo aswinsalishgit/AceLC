@@ -11,9 +11,9 @@
     <header class="header">
       <div class="brand">
         <h1>AceLC Settings</h1>
-        <span class="badge">Phase 3</span>
+        <span class="badge">Phase 4</span>
       </div>
-      <p class="tagline">Configure GitHub connection and repository preferences</p>
+      <p class="tagline">Configure GitHub connection, repository, and destination folders</p>
     </header>
 
     <div id="optionsToast" class="toast hidden"></div>
@@ -36,11 +36,11 @@
         </p>
       </section>
 
-      <!-- Target Repository Configuration (Phase 3) -->
+      <!-- Target Repository Configuration (Phase 3 & 4) -->
       <section id="repoSettingsCard" class="card">
-        <h2>Target Repository</h2>
+        <h2>Target Repository & Folders</h2>
         <p class="text-muted">
-          Selected repository where your accepted LeetCode solutions will be uploaded.
+          Destination repository and folders where your accepted LeetCode solutions will be stored.
         </p>
 
         <!-- Currently Selected Summary -->
@@ -62,6 +62,45 @@
             <button id="optionsSaveRepoBtn" class="btn btn-primary" type="button" disabled>
               Save Selection
             </button>
+          </div>
+        </div>
+
+        <!-- Destination Folders Management (Phase 4) -->
+        <div id="optionsFoldersSection" class="form-group hidden">
+          <hr class="options-divider">
+          <div class="folders-header-row">
+            <span class="label-text">Configured Destination Folders</span>
+            <span id="optionsFoldersCount" class="count-badge">0 configured</span>
+          </div>
+          <div id="optionsFoldersList" class="folder-tags-box">
+            <p class="text-muted">No folders configured for this repository yet.</p>
+          </div>
+
+          <!-- Add folder row -->
+          <div class="repo-select-row">
+            <input 
+              type="text" 
+              id="optionsNewFolderInput" 
+              class="input-field" 
+              placeholder="e.g. Easy or Algorithms/TwoSum"
+              autocomplete="off"
+            >
+            <button id="optionsAddFolderBtn" class="btn btn-primary" type="button">
+              Add Folder
+            </button>
+          </div>
+
+          <!-- Add from existing GitHub directories -->
+          <div id="optionsExistingDirGroup" class="form-group hidden">
+            <label for="optionsExistingDirDropdown" class="label-text">Or Pick Existing Folder on GitHub</label>
+            <div class="repo-select-row">
+              <select id="optionsExistingDirDropdown" class="select-field">
+                <option value="">-- Select existing folder --</option>
+              </select>
+              <button id="optionsAddExistingDirBtn" class="btn btn-secondary" type="button" disabled>
+                Add
+              </button>
+            </div>
           </div>
         </div>
       </section>
