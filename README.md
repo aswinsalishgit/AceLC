@@ -1,76 +1,40 @@
-I am building AceLC, an open-source Chrome extension that automatically uploads users’ LeetCode solutions to their GitHub repositories.
 
-I want to begin with a simple MVP that focuses exclusively on solution uploading. Do not introduce advanced features or unnecessary complexity.
+# AceLC
 
-### 1. Core functionality
+**AceLC** is an open-source Chrome extension that automatically uploads your accepted [LeetCode](https://leetcode.com/) solutions to your [GitHub](https://github.com/) repository.
 
-The extension should support this workflow:
+Built by [CodeGab](https://github.com/CodeGab) to make tracking and managing coding practice simple and effortless.
 
-1. The user installs and opens AceLC in Chrome.
-2. The user authenticates their GitHub account.
-3. The user either:
-   - Creates a new GitHub repository and chooses whether it is public or private.
-   - Selects an existing repository.
-4. The user can create and manage destination folders within the selected repository.
-5. The user clicks "Get Started" to activate AceLC.
-6. When the user successfully submits a solution on LeetCode, AceLC detects the submission and prompts the user to select the folder(s) where the solution should be uploaded.
-7. After confirmation, AceLC uploads the solution to the selected GitHub repository and folder(s).
+## Features
 
-### 2. Technology stack
+- **GitHub Authentication** — Connect your GitHub account.
+- **Repository Management** — Create a new repository or select an existing one.
+- **Folder Management** — Choose and manage folders for your solutions.
+- **Automatic Uploads** — Detect accepted LeetCode submissions and upload them to GitHub.
+- **Multiple Destinations** — Upload a solution to multiple selected folders.
 
-Use only:
+## Tech Stack
+
 - HTML
 - CSS
-- Vanilla JavaScript
-- Chrome Extension APIs
-- GitHub APIs
+- JavaScript
+- Chrome Extension Manifest V3
+- GitHub REST API
 
-Build the extension using Chrome's Manifest V3 architecture.
+## Getting Started
 
-Avoid frameworks, libraries, build tools, or unnecessary dependencies unless they are genuinely required.
+Installation and usage instructions will be added as the MVP develops.
 
-### 3. Development principles
+## Project Status
 
-This is an open-source educational project. Code readability and simplicity are extremely important.
+AceLC is currently under development.
 
-Follow these principles throughout development:
+## Contributing
 
-- Write beginner-friendly, easy-to-understand code.
-- Prefer simple solutions over clever or unnecessarily complex implementations.
-- Use meaningful variable, function, and file names.
-- Add clear comments explaining the purpose and functionality of every important line, function, and code block.
-- Organise the project into a logical, easy-to-navigate folder structure.
-- Avoid unnecessary abstractions and premature optimisation.
-- Follow basic security practices, especially when handling GitHub authentication and access tokens.
-- Never expose client secrets, credentials, or sensitive tokens in publicly accessible source code.
+Contributions, suggestions, and bug reports are welcome!
 
-### 4. How I want you to guide development
+Please check the project's contribution guidelines before submitting a pull request.
 
-I am using Antigravity IDE and want to build this project incrementally.
+## License
 
-First, provide:
-
-**A. Development roadmap**
-- Break the MVP into logical development phases.
-- Explain what each phase accomplishes.
-- Identify dependencies between phases.
-
-**B. Master prompt**
-- Write one comprehensive master prompt that establishes the project context, architecture, requirements, coding standards, and overall development goals.
-
-**C. Implementation sub-prompts**
-- Write separate, sequential prompts for each development phase.
-- Each prompt should focus on a specific, manageable implementation task.
-- Include clear instructions, expected outcomes, and acceptance criteria.
-- Ensure each prompt builds upon the code created in previous phases.
-
-### 5. Important instructions
-
-- Do not attempt to build the entire extension in one step.
-- Do not skip architectural or foundational steps.
-- Do not introduce features outside the defined MVP scope.
-- Explain important technical decisions in beginner-friendly language.
-- Ensure every phase results in working, testable code.
-- Maintain consistency across files and implementation phases.
-
-The ultimate goal is to create a simple, reliable, secure, and maintainable open-source Chrome extension that even beginner developers can understand, contribute to, and learn from.
+To be decided.
