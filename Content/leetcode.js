@@ -99,8 +99,152 @@
   }
 
   /**
+   * Extract problem difficulty from DOM
+   * Supported: 'Easy', 'Medium', 'Hard'
+   * @returns {string} Difficulty
+   */
+  function extractProblemDifficulty() {
+    const diffSelectors = [
+      'div[class*="text-difficulty-"]',
+      'span[class*="text-difficulty-"]',
+      'div[class*="difficulty-"]',
+      '[data-degree]',
+      'div.text-olive',
+      'div.text-yellow',
+      'div.text-pink',
+      'div.text-success',
+      'div.text-warning',
+      'div.text-danger'
+    ];
+
+    for (const sel of diffSelectors) {
+      const el = document.querySelector(sel);
+      if (el && el.textContent) {
+        const text = el.textContent.trim().toLowerCase();
+        if (text.includes('easy')) return 'Easy';
+        if (text.includes('medium')) return 'Medium';
+        if (text.includes('hard')) return 'Hard';
+      }
+    }
+
+    // Secondary scan across any element with Easy/Medium/Hard text
+    const allBadges = document.querySelectorAll('div, span');
+    for (const badge of allBadges) {
+      if (badge.children.length === 0) {
+        const text = (badge.textContent || '').trim();
+        if (text === 'Easy' || text === 'Medium' || text === 'Hard') {
+          return text;
+        }
+      }
+    }
+
+    return 'Medium'; // Default fallback
+  }
+
+  /**
+   * Extract complete problem statement content from DOM
+   * @returns {string} Markdown/text problem statement
+   */
+  function extractProblemStatement() {
+    const contentSelectors = [
+      '[data-track-load="description_content"]',
+      'div.question-content__JfgR',
+      'div[class*="question-content"]',
+      'div._1l1Q',
+      'div.content__uRbb',
+      'div[data-key="description-content"]',
+      'div[class*="elfjS"]'
+    ];
+
+    let contentEl = null;
+    for (const sel of contentSelectors) {
+      const el = document.querySelector(sel);
+      if (el && el.textContent && el.textContent.trim().length > 30) {
+        contentEl = el;
+        break;
+      }
+    }
+
+    if (!contentEl) {
+      return '';
+    }
+
+    // Convert HTML elements to clean markdown-like text
+    return htmlToMarkdown(contentEl);
+  }
+
+  /**
+   * Convert an HTML problem content node to formatted Markdown text
+   * @param {Element} node 
+   * @returns {string}
+   */
+  function htmlToMarkdown(node) {
+    if (!node) return '';
+
+    // Clone to avoid mutating live DOM
+    const clone = node.cloneNode(true);
+
+    // Remove buttons, toolbars, or dynamic action widgets inside question content
+    const unwanted = clone.querySelectorAll('button, svg, [role="button"], script, style');
+    unwanted.forEach((el) => el.remove());
+
+    // Replace <code> tags with backticks
+    const codeTags = clone.querySelectorAll('code');
+    codeTags.forEach((c) => {
+      if (c.parentElement && c.parentElement.tagName === 'PRE') {
+        // Handled in pre block
+      } else {
+        c.textContent = '`' + c.textContent + '`';
+      }
+    });
+
+    // Replace <pre> blocks with ``` code fences
+    const preTags = clone.querySelectorAll('pre');
+    preTags.forEach((p) => {
+      p.textContent = '\n\n```\n' + p.textContent.trim() + '\n```\n\n';
+    });
+
+    // Replace <strong>/<b> with **
+    const boldTags = clone.querySelectorAll('strong, b');
+    boldTags.forEach((b) => {
+      b.textContent = '**' + b.textContent + '**';
+    });
+
+    // Replace <em>/<i> with *
+    const italicTags = clone.querySelectorAll('em, i');
+    italicTags.forEach((i) => {
+      i.textContent = '*' + i.textContent + '*';
+    });
+
+    // Replace headers
+    for (let h = 1; h <= 6; h++) {
+      const headers = clone.querySelectorAll('h' + h);
+      headers.forEach((hdr) => {
+        hdr.textContent = '\n\n' + '#'.repeat(h) + ' ' + hdr.textContent.trim() + '\n\n';
+      });
+    }
+
+    // Replace list items
+    const listItems = clone.querySelectorAll('li');
+    listItems.forEach((li) => {
+      li.textContent = '\n- ' + li.textContent.trim();
+    });
+
+    // Replace paragraphs and line breaks
+    const paragraphs = clone.querySelectorAll('p');
+    paragraphs.forEach((p) => {
+      p.textContent = '\n\n' + p.textContent.trim() + '\n\n';
+    });
+
+    let text = clone.textContent || '';
+    // Normalize excessive newlines
+    text = text.replace(/\n{3,}/g, '\n\n').trim();
+    return text;
+  }
+
+  /**
    * Extract problem title, number, slug, and canonical URL
-   * @returns {{ slug: string, title: string, number: string|null, url: string }}
+   * @returns {{ slug: string, title: string, number: string|null, url: string, difficulty: string, statement: string }}
    */
   function extractProblemMetadata() {
     const slug = getCurrentProblemSlug();
@@ -150,11 +294,16 @@
         .join(' ');
     }
 
+    const difficulty = extractProblemDifficulty();
+    const statement = extractProblemStatement();
+
     return {
       slug,
       title: problemTitle,
       number: problemNumber,
-      url: canonicalUrl
+      url: canonicalUrl,
+      difficulty,
+      statement
     };
   }
 
@@ -314,6 +463,8 @@
       problemSlug: meta.slug,
       problemUrl: meta.url,
       problemNumber: meta.number,
+      difficulty: meta.difficulty,
+      statement: meta.statement,
       code: code || '',
       language: langInfo.name,
       languageId: langInfo.id,
@@ -395,6 +546,12 @@
 
     if (type === Constants.BRIDGE_EVENTS.SUBMISSION_INITIATED) {
       console.log('[AceLC Content] Network submission initiated intercepted for:', detail.slug);
+      // Only process on actual problem pages — skip submission detail/results pages
+      const currentSlug = getCurrentProblemSlug();
+      if (!currentSlug) {
+        console.log('[AceLC Content] SUBMISSION_INITIATED ignored: not on a problem page.');
+        return;
+      }
       const meta = extractProblemMetadata();
       const rawLang = detail.language || detectLanguageFromDOM();
       const langInfo = typeof normalizeAceLanguage === 'function'
@@ -407,6 +564,8 @@
         problemSlug: detail.slug || (meta ? meta.slug : ''),
         problemUrl: meta ? meta.url : `https://leetcode.com/problems/${detail.slug}/`,
         problemNumber: meta ? meta.number : null,
+        difficulty: meta ? meta.difficulty : 'Medium',
+        statement: meta ? meta.statement : '',
         code: detail.code || (activeSubmissionSnapshot ? activeSubmissionSnapshot.code : ''),
         language: langInfo.name,
         languageId: langInfo.id,
@@ -438,6 +597,8 @@
         submissionId: detail.submissionId,
         runtime: detail.runtime,
         memory: detail.memory,
+        runtimePercentile: detail.runtimePercentile,
+        memoryPercentile: detail.memoryPercentile,
         totalCorrect: detail.totalCorrect,
         totalTestcases: detail.totalTestcases
       });
@@ -502,6 +663,8 @@
       if (text.toLowerCase() === 'accepted') {
         const runtimeEl = document.querySelector('[data-e2e-locator="submission-runtime"]');
         const memoryEl = document.querySelector('[data-e2e-locator="submission-memory"]');
+        const runtimePctEl = document.querySelector('[data-e2e-locator="submission-runtime-percentile"], [class*="runtime"] [class*="percentile"]');
+        const memoryPctEl = document.querySelector('[data-e2e-locator="submission-memory-percentile"], [class*="memory"] [class*="percentile"]');
 
         let submissionId = activeSubmissionSnapshot.submissionId;
         if (!submissionId) {
@@ -516,7 +679,9 @@
         processAcceptedSubmission({
           submissionId,
           runtime: runtimeEl ? runtimeEl.textContent.trim() : null,
-          memory: memoryEl ? memoryEl.textContent.trim() : null
+          memory: memoryEl ? memoryEl.textContent.trim() : null,
+          runtimePercentile: runtimePctEl ? runtimePctEl.textContent.trim() : null,
+          memoryPercentile: memoryPctEl ? memoryPctEl.textContent.trim() : null
         });
         return;
       }
@@ -598,12 +763,18 @@
 
     processedSubmissionKeys.add(dedupKey);
 
+    // Refresh difficulty or statement if they weren't ready at submit time
+    const difficulty = snapshot.difficulty || extractProblemDifficulty();
+    const statement = snapshot.statement || extractProblemStatement();
+
     // Build standard payload
     const submissionPayload = {
       problemTitle: snapshot.problemTitle,
       problemSlug: snapshot.problemSlug,
       problemUrl: snapshot.problemUrl,
       problemNumber: snapshot.problemNumber,
+      difficulty: difficulty,
+      statement: statement,
       code: snapshot.code,
       language: snapshot.language,
       languageId: snapshot.languageId,
@@ -611,6 +782,8 @@
       submissionId: submissionId,
       runtime: resultDetails.runtime || null,
       memory: resultDetails.memory || null,
+      runtimePercentile: resultDetails.runtimePercentile || null,
+      memoryPercentile: resultDetails.memoryPercentile || null,
       timestamp: Date.now()
     };
 
@@ -1009,8 +1182,17 @@
     statusTag.className = 'acelc-tag acelc-tag-success';
     statusTag.textContent = '✓ Accepted';
 
+    const diffTag = document.createElement('span');
+    diffTag.className = 'acelc-tag';
+    const diff = submission.difficulty || 'Medium';
+    diffTag.textContent = diff;
+    if (diff === 'Easy') diffTag.style.cssText = 'background:#dcfce7;color:#15803d;';
+    else if (diff === 'Hard') diffTag.style.cssText = 'background:#fee2e2;color:#b91c1c;';
+    else diffTag.style.cssText = 'background:#fef3c7;color:#b45309;';
+
     badgeRow.appendChild(langTag);
     badgeRow.appendChild(statusTag);
+    badgeRow.appendChild(diffTag);
 
     if (submission.runtime) {
       const runtimeTag = document.createElement('span');
@@ -1426,14 +1608,25 @@
   }
 
   // Listen for background worker messages to show destination modal
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message && message.action === Constants.MESSAGES.SHOW_DESTINATION_MODAL) {
-      console.log('[AceLC Content] Received SHOW_DESTINATION_MODAL for problem:', message.submission.problemSlug);
-      showDestinationModal(message.submission, message.repository, message.folders);
-      sendResponse({ success: true, shown: true });
-      return false;
-    }
-  });
+  // Wrapped in try/catch: if the extension is reloaded while the page is open,
+  // chrome.runtime becomes invalid and addListener would throw synchronously.
+  try {
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (!isExtensionValid()) return;
+      if (message && message.action === Constants.MESSAGES.SHOW_DESTINATION_MODAL) {
+        try {
+          console.log('[AceLC Content] Received SHOW_DESTINATION_MODAL for problem:', message.submission.problemSlug);
+          showDestinationModal(message.submission, message.repository, message.folders);
+          sendResponse({ success: true, shown: true });
+        } catch (e) {
+          console.warn('[AceLC Content] Error showing destination modal:', e.message);
+        }
+        return false;
+      }
+    });
+  } catch (e) {
+    console.warn('[AceLC Content] Could not register message listener (extension context invalidated). Refresh the page to re-enable AceLC.');
+  }
 
   // =========================================================================
   // 8. SPA NAVIGATION & LEETCODE UI CHANGE HANDLING
