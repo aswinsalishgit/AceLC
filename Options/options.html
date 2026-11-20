@@ -11,23 +11,58 @@
     <header class="header">
       <div class="brand">
         <h1>AceLC Settings</h1>
-        <span class="badge">Phase 1</span>
+        <span class="badge">Phase 2</span>
       </div>
-      <p class="tagline">Configure repository and destination preferences</p>
+      <p class="tagline">Configure GitHub connection and extension settings</p>
     </header>
 
+    <div id="optionsToast" class="toast hidden"></div>
+
     <main class="content">
+      <!-- GitHub Connection Section -->
       <section class="card">
-        <h2>Extension Status</h2>
-        <p class="text-muted">
-          AceLC project foundation is active. Repository configuration and destination folder management will be introduced in subsequent phases.
+        <h2>GitHub Account</h2>
+        <div id="accountStatusRow" class="account-row">
+          <div class="status-indicator">
+            <span id="accountDot" class="status-dot dot-neutral"></span>
+            <span id="accountStatusText" class="status-label">Not Connected</span>
+          </div>
+          <button id="optionsDisconnectBtn" class="btn btn-danger hidden" type="button">
+            Disconnect
+          </button>
+        </div>
+        <p id="accountDetails" class="text-muted">
+          Connect your GitHub account through the AceLC popup using OAuth Device Flow.
         </p>
       </section>
 
+      <!-- OAuth App Configuration -->
+      <section class="card">
+        <h2>GitHub OAuth Settings</h2>
+        <p class="text-muted">
+          Specify a custom GitHub OAuth App Client ID if you are using your own registered application (Device Flow must be enabled in the OAuth app settings).
+        </p>
+        <div class="form-group">
+          <label for="optionsClientIdInput" class="label-text">OAuth Client ID</label>
+          <input 
+            type="text" 
+            id="optionsClientIdInput" 
+            class="input-field" 
+            placeholder="e.g. Ov23li..." 
+            autocomplete="off"
+            spellcheck="false"
+          >
+        </div>
+        <button id="saveClientIdBtn" class="btn btn-primary" type="button">
+          Save Settings
+        </button>
+      </section>
+
+      <!-- About AceLC -->
       <section class="card">
         <h2>About AceLC</h2>
         <p class="text-muted">
-          AceLC is an open-source tool developed under CodeGab to streamline uploading accepted LeetCode solutions to GitHub.
+          AceLC is an open-source tool developed under CodeGab to automatically upload accepted LeetCode solutions directly to your GitHub repository.
         </p>
       </section>
     </main>

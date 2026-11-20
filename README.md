@@ -7,9 +7,10 @@ Built by [CodeGab](https://github.com/CodeGab) to make tracking and managing cod
 ## Features
 
 - **Manifest V3 Foundation** - Service worker lifecycle and storage persistence setup.
+- **GitHub Authentication** - Connect and disconnect GitHub accounts securely using OAuth Device Flow.
+- **Extension Popup** - Multi-state interface for authorization codes, approval checks, and user profile display.
+- **Options Management** - Dedicated settings page for OAuth application configuration and connection status.
 - **LeetCode Detection Hook** - Content script targeting LeetCode problem pages.
-- **Extension Popup** - Status interface and quick access to extension settings.
-- **Options Management** - Dedicated settings page for extension configuration.
 - **Shared Architecture** - Unified constants and messaging protocol across components.
 
 ## Tech Stack
@@ -32,7 +33,7 @@ To load the extension locally in Google Chrome:
 
 ## Project Status
 
-AceLC is currently under development. Phase 1 (Project Foundation) is complete.
+AceLC is currently under development. Phase 2 (GitHub Authentication) is complete.
 
 ## Contributing
 

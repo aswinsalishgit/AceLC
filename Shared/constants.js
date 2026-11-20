@@ -12,17 +12,45 @@ const AceConstants = Object.freeze({
   STORAGE_KEYS: {
     AUTH_TOKEN: 'ace_github_token',
     USER_INFO: 'ace_github_user',
+    AUTH_STATE: 'ace_auth_state',
+    CLIENT_ID: 'ace_github_client_id',
     SELECTED_REPO: 'ace_selected_repo',
     DESTINATION_FOLDERS: 'ace_destination_folders',
     IS_ACTIVATED: 'ace_is_activated',
     PENDING_SUBMISSION: 'ace_pending_submission'
   },
 
+  // Authentication UI and process states
+  AUTH_STATUS: {
+    NOT_CONNECTED: 'NOT_CONNECTED',
+    WAITING_FOR_AUTH: 'WAITING_FOR_AUTH',
+    CONNECTED: 'CONNECTED',
+    FAILED: 'FAILED'
+  },
+
   // Message action identifiers used for chrome.runtime messaging
   MESSAGES: {
+    // Authentication actions
+    START_AUTH: 'ACE_START_AUTH',
+    CANCEL_AUTH: 'ACE_CANCEL_AUTH',
+    CHECK_AUTH_NOW: 'ACE_CHECK_AUTH_NOW',
+    DISCONNECT_AUTH: 'ACE_DISCONNECT_AUTH',
+    GET_AUTH_STATUS: 'ACE_GET_AUTH_STATUS',
+
+    // Core actions
     SUBMISSION_DETECTED: 'ACE_SUBMISSION_DETECTED',
     GET_STATUS: 'ACE_GET_STATUS',
     UPLOAD_SOLUTION: 'ACE_UPLOAD_SOLUTION'
+  },
+
+  // GitHub OAuth Device Flow configuration & endpoints
+  GITHUB: {
+    DEFAULT_CLIENT_ID: '', // Optional default OAuth App Client ID
+    DEVICE_CODE_URL: 'https://github.com/login/device/code',
+    TOKEN_URL: 'https://github.com/login/oauth/access_token',
+    USER_API_URL: 'https://api.github.com/user',
+    SCOPES: 'repo',
+    VERIFICATION_URL: 'https://github.com/login/device'
   },
 
   // Target URLs
