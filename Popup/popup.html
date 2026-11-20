@@ -99,7 +99,7 @@
         </button>
       </section>
 
-      <!-- STATE: SUCCESSFULLY CONNECTED -->
+      <!-- STATE: SUCCESSFULLY CONNECTED (PHASE 2 & PHASE 3) -->
       <section id="stateConnected" class="state-card hidden">
         <div class="card-header">
           <div class="status-indicator">
@@ -108,6 +108,7 @@
           </div>
         </div>
 
+        <!-- User Profile Card -->
         <div class="profile-card">
           <img id="userAvatar" class="user-avatar" src="" alt="GitHub Avatar">
           <div class="profile-details">
@@ -116,9 +117,121 @@
           </div>
         </div>
 
-        <p class="connected-note">
-          Your GitHub account is connected. Repository management will be available in Phase 3.
-        </p>
+        <!-- REPOSITORY MANAGEMENT SECTION (PHASE 3) -->
+        <div class="repo-section">
+          
+          <!-- View 1: Active Selected Repository -->
+          <div id="repoActiveView" class="repo-card hidden">
+            <div class="repo-card-header">
+              <span class="repo-card-title">Destination Repository</span>
+              <span id="repoVisibilityBadge" class="repo-badge badge-public">Public</span>
+            </div>
+            <div class="repo-name-row">
+              <svg class="repo-icon" viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
+                <path d="M2 2.5A2.5 2.5 0 014.5 0h8.75a.75.75 0 01.75.75v12.5a.75.75 0 01-.75.75h-2.5a.75.75 0 110-1.5h1.75v-2h-8a1 1 0 00-.714 1.7.75.75 0 01-1.072 1.05A2.495 2.495 0 012 11.5v-9zm10.5-1h-8a1 1 0 00-1 1v6.708A2.486 2.486 0 014.5 9h8V1.5z"/>
+              </svg>
+              <a id="repoNameLink" class="repo-link" href="#" target="_blank" rel="noopener"></a>
+            </div>
+            <p class="repo-helper-text">Ready for destination folders setup.</p>
+            <button id="changeRepoBtn" class="btn btn-secondary btn-sm" type="button">
+              Change Repository
+            </button>
+          </div>
+
+          <!-- View 2: Repository Configuration (Select or Create) -->
+          <div id="repoConfigView" class="repo-card">
+            
+            <!-- Sub-Mode A: Select Existing Repository -->
+            <div id="repoSelectMode">
+              <div class="repo-card-header">
+                <span class="repo-card-title">Select Repository</span>
+                <button id="refreshReposBtn" class="btn-icon-link" type="button" title="Refresh repositories">
+                  <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
+                    <path fill-rule="evenodd" d="M8 3a5 5 0 104.546 2.914.5.5 0 01.908-.417A6 6 0 118 2v1z"/>
+                    <path d="M8 4.466V.534a.25.25 0 01.41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 018 4.466z"/>
+                  </svg>
+                </button>
+              </div>
+              <p class="repo-desc">Choose an existing repository for LeetCode solutions.</p>
+
+              <div class="form-group">
+                <select id="repoDropdown" class="select-field">
+                  <option value="">-- Loading repositories... --</option>
+                </select>
+              </div>
+
+              <div class="repo-actions">
+                <button id="confirmSelectRepoBtn" class="btn btn-primary" type="button" disabled>
+                  Select Repository
+                </button>
+                <button id="switchToCreateRepoBtn" class="btn btn-secondary" type="button">
+                  + Create New Repo
+                </button>
+              </div>
+
+              <button id="cancelChangeRepoBtn" class="btn btn-text hidden" type="button">
+                Keep Current Selection
+              </button>
+            </div>
+
+            <!-- Sub-Mode B: Create New Repository Form -->
+            <div id="repoCreateMode" class="hidden">
+              <span class="repo-card-title">Create New Repository</span>
+              <p class="repo-desc">Create a new repository for your LeetCode solutions.</p>
+
+              <div class="form-group">
+                <label for="newRepoName" class="label-text">Repository Name *</label>
+                <input 
+                  type="text" 
+                  id="newRepoName" 
+                  class="input-field" 
+                  placeholder="e.g. leetcode-solutions" 
+                  autocomplete="off"
+                  spellcheck="false"
+                >
+                <span id="repoNameValidationMsg" class="validation-msg hidden"></span>
+              </div>
+
+              <div class="form-group">
+                <label for="newRepoDesc" class="label-text">Description (Optional)</label>
+                <input 
+                  type="text" 
+                  id="newRepoDesc" 
+                  class="input-field" 
+                  placeholder="e.g. My accepted LeetCode solutions"
+                  autocomplete="off"
+                >
+              </div>
+
+              <div class="form-group">
+                <label class="label-text">Visibility</label>
+                <div class="radio-group">
+                  <label class="radio-label">
+                    <input type="radio" name="newRepoVisibility" value="public" checked>
+                    <span>Public</span>
+                  </label>
+                  <label class="radio-label">
+                    <input type="radio" name="newRepoVisibility" value="private">
+                    <span>Private</span>
+                  </label>
+                </div>
+              </div>
+
+              <div id="createRepoErrorMsg" class="error-text hidden"></div>
+
+              <div class="repo-actions">
+                <button id="submitCreateRepoBtn" class="btn btn-primary" type="button">
+                  Create & Select
+                </button>
+                <button id="cancelCreateModeBtn" class="btn btn-secondary" type="button">
+                  Back to Selection
+                </button>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
 
         <button id="disconnectBtn" class="btn btn-danger" type="button">
           Disconnect GitHub

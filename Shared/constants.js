@@ -37,18 +37,25 @@ const AceConstants = Object.freeze({
     DISCONNECT_AUTH: 'ACE_DISCONNECT_AUTH',
     GET_AUTH_STATUS: 'ACE_GET_AUTH_STATUS',
 
+    // Repository actions
+    GET_REPOSITORIES: 'ACE_GET_REPOSITORIES',
+    CREATE_REPOSITORY: 'ACE_CREATE_REPOSITORY',
+    SELECT_REPOSITORY: 'ACE_SELECT_REPOSITORY',
+    GET_SELECTED_REPO: 'ACE_GET_SELECTED_REPO',
+
     // Core actions
     SUBMISSION_DETECTED: 'ACE_SUBMISSION_DETECTED',
     GET_STATUS: 'ACE_GET_STATUS',
     UPLOAD_SOLUTION: 'ACE_UPLOAD_SOLUTION'
   },
 
-  // GitHub OAuth Device Flow configuration & endpoints
+  // GitHub OAuth & REST API configuration
   GITHUB: {
     DEFAULT_CLIENT_ID: '', // Optional default OAuth App Client ID
     DEVICE_CODE_URL: 'https://github.com/login/device/code',
     TOKEN_URL: 'https://github.com/login/oauth/access_token',
     USER_API_URL: 'https://api.github.com/user',
+    USER_REPOS_URL: 'https://api.github.com/user/repos',
     SCOPES: 'repo',
     VERIFICATION_URL: 'https://github.com/login/device'
   },

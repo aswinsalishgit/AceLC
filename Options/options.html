@@ -11,9 +11,9 @@
     <header class="header">
       <div class="brand">
         <h1>AceLC Settings</h1>
-        <span class="badge">Phase 2</span>
+        <span class="badge">Phase 3</span>
       </div>
-      <p class="tagline">Configure GitHub connection and extension settings</p>
+      <p class="tagline">Configure GitHub connection and repository preferences</p>
     </header>
 
     <div id="optionsToast" class="toast hidden"></div>
@@ -36,6 +36,36 @@
         </p>
       </section>
 
+      <!-- Target Repository Configuration (Phase 3) -->
+      <section id="repoSettingsCard" class="card">
+        <h2>Target Repository</h2>
+        <p class="text-muted">
+          Selected repository where your accepted LeetCode solutions will be uploaded.
+        </p>
+
+        <!-- Currently Selected Summary -->
+        <div id="optionsRepoActiveRow" class="repo-active-box hidden">
+          <div class="repo-details-row">
+            <span class="label-text">Current Destination:</span>
+            <span id="optionsRepoBadge" class="repo-badge badge-public">Public</span>
+          </div>
+          <a id="optionsRepoLink" class="repo-title-link" href="#" target="_blank" rel="noopener"></a>
+        </div>
+
+        <!-- Repository Selector -->
+        <div class="form-group">
+          <label for="optionsRepoDropdown" class="label-text">Change Destination Repository</label>
+          <div class="repo-select-row">
+            <select id="optionsRepoDropdown" class="select-field">
+              <option value="">-- Connect GitHub to load repositories --</option>
+            </select>
+            <button id="optionsSaveRepoBtn" class="btn btn-primary" type="button" disabled>
+              Save Selection
+            </button>
+          </div>
+        </div>
+      </section>
+
       <!-- OAuth App Configuration -->
       <section class="card">
         <h2>GitHub OAuth Settings</h2>
@@ -54,7 +84,7 @@
           >
         </div>
         <button id="saveClientIdBtn" class="btn btn-primary" type="button">
-          Save Settings
+          Save Client ID
         </button>
       </section>
 

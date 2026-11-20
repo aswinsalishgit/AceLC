@@ -1,16 +1,16 @@
 /**
  * AceLC - Popup Script
- * Coordinates GitHub authentication UI states and user actions.
+ * Coordinates GitHub authentication UI states, user actions, and repository selection.
  */
 
 document.addEventListener('DOMContentLoaded', () => {
-  // DOM Elements - State Containers
+  // DOM Elements - Auth State Containers
   const stateNotConnected = document.getElementById('stateNotConnected');
   const stateWaitingAuth = document.getElementById('stateWaitingAuth');
   const stateConnected = document.getElementById('stateConnected');
   const stateAuthFailed = document.getElementById('stateAuthFailed');
 
-  // DOM Elements - Inputs & Controls
+  // DOM Elements - Auth Inputs & Controls
   const clientIdInput = document.getElementById('clientIdInput');
   const connectBtn = document.getElementById('connectBtn');
   const userCodeDisplay = document.getElementById('userCodeDisplay');
@@ -29,11 +29,35 @@ document.addEventListener('DOMContentLoaded', () => {
   const authErrorMessage = document.getElementById('authErrorMessage');
   const feedbackToast = document.getElementById('feedbackToast');
 
+  // DOM Elements - Repository Management (Phase 3)
+  const repoActiveView = document.getElementById('repoActiveView');
+  const repoVisibilityBadge = document.getElementById('repoVisibilityBadge');
+  const repoNameLink = document.getElementById('repoNameLink');
+  const changeRepoBtn = document.getElementById('changeRepoBtn');
+
+  const repoConfigView = document.getElementById('repoConfigView');
+  const repoSelectMode = document.getElementById('repoSelectMode');
+  const repoCreateMode = document.getElementById('repoCreateMode');
+  const repoDropdown = document.getElementById('repoDropdown');
+  const confirmSelectRepoBtn = document.getElementById('confirmSelectRepoBtn');
+  const switchToCreateRepoBtn = document.getElementById('switchToCreateRepoBtn');
+  const refreshReposBtn = document.getElementById('refreshReposBtn');
+  const cancelChangeRepoBtn = document.getElementById('cancelChangeRepoBtn');
+
+  const newRepoName = document.getElementById('newRepoName');
+  const newRepoDesc = document.getElementById('newRepoDesc');
+  const repoNameValidationMsg = document.getElementById('repoNameValidationMsg');
+  const createRepoErrorMsg = document.getElementById('createRepoErrorMsg');
+  const submitCreateRepoBtn = document.getElementById('submitCreateRepoBtn');
+  const cancelCreateModeBtn = document.getElementById('cancelCreateModeBtn');
+
   let activeVerificationUri = AceConstants.GITHUB.VERIFICATION_URL;
   let activeUserCode = '';
+  let cachedRepositories = [];
+  let currentSelectedRepo = null;
 
   /**
-   * Show feedback message banner
+   * Show feedback toast notification
    */
   function showToast(message, isError = false) {
     if (!feedbackToast) return;
@@ -67,6 +91,26 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   /**
+   * Client-side repository name validation
+   */
+  function validateRepoNameInput(name) {
+    if (!name || typeof name !== 'string') return 'Repository name is required.';
+    const trimmed = name.trim();
+    if (trimmed.length === 0) return 'Repository name cannot be empty.';
+    if (trimmed.length > 100) return 'Repository name cannot exceed 100 characters.';
+    if (!/^[a-zA-Z0-9_.-]+$/.test(trimmed)) {
+      return 'Can only contain letters, numbers, hyphens, periods, and underscores.';
+    }
+    if (trimmed.startsWith('-') || trimmed.startsWith('.')) {
+      return 'Cannot start with a hyphen or period.';
+    }
+    if (trimmed.toLowerCase().endsWith('.git')) {
+      return 'Cannot end with .git.';
+    }
+    return null;
+  }
+
+  /**
    * Render Connected State
    */
   function renderConnected(user) {
@@ -84,6 +128,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     setViewState(AceConstants.AUTH_STATUS.CONNECTED);
+    loadSelectedRepository();
   }
 
   /**
@@ -102,6 +147,273 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderAuthFailed(message) {
     authErrorMessage.textContent = message || 'An error occurred during authentication.';
     setViewState(AceConstants.AUTH_STATUS.FAILED);
+  }
+
+  /**
+   * =========================================================================
+   * REPOSITORY MANAGEMENT LOGIC (PHASE 3)
+   * =========================================================================
+   */
+
+  /**
+   * Render active selected repository card
+   */
+  function renderSelectedRepo(repo) {
+    currentSelectedRepo = repo;
+
+    if (repo && repo.fullName) {
+      repoNameLink.textContent = repo.fullName;
+      repoNameLink.href = repo.htmlUrl || `https://github.com/${repo.fullName}`;
+
+      const isPrivate = Boolean(repo.isPrivate);
+      repoVisibilityBadge.textContent = isPrivate ? 'Private' : 'Public';
+      repoVisibilityBadge.className = isPrivate ? 'repo-badge badge-private' : 'repo-badge badge-public';
+
+      repoActiveView.classList.remove('hidden');
+      repoConfigView.classList.add('hidden');
+    } else {
+      repoActiveView.classList.add('hidden');
+      repoConfigView.classList.remove('hidden');
+      showSelectMode();
+      loadUserRepositories();
+    }
+  }
+
+  /**
+   * Show Select Mode in Repo Config View
+   */
+  function showSelectMode() {
+    repoSelectMode.classList.remove('hidden');
+    repoCreateMode.classList.add('hidden');
+    if (cancelChangeRepoBtn) {
+      if (currentSelectedRepo) {
+        cancelChangeRepoBtn.classList.remove('hidden');
+      } else {
+        cancelChangeRepoBtn.classList.add('hidden');
+      }
+    }
+  }
+
+  /**
+   * Show Create Mode in Repo Config View
+   */
+  function showCreateMode() {
+    repoSelectMode.classList.add('hidden');
+    repoCreateMode.classList.remove('hidden');
+    newRepoName.value = '';
+    newRepoDesc.value = '';
+    repoNameValidationMsg.classList.add('hidden');
+    createRepoErrorMsg.classList.add('hidden');
+  }
+
+  /**
+   * Retrieve currently selected repository from storage via background
+   */
+  function loadSelectedRepository() {
+    chrome.runtime.sendMessage({ action: AceConstants.MESSAGES.GET_SELECTED_REPO }, (response) => {
+      if (response && response.success) {
+        renderSelectedRepo(response.repository);
+      } else {
+        renderSelectedRepo(null);
+      }
+    });
+  }
+
+  /**
+   * Fetch user repositories from background and populate dropdown
+   */
+  function loadUserRepositories() {
+    repoDropdown.innerHTML = '<option value="">-- Loading repositories... --</option>';
+    confirmSelectRepoBtn.disabled = true;
+
+    chrome.runtime.sendMessage({ action: AceConstants.MESSAGES.GET_REPOSITORIES }, (response) => {
+      if (chrome.runtime.lastError || !response || !response.success) {
+        const errorText = (response && response.error) || 'Failed to load repositories.';
+        repoDropdown.innerHTML = `<option value="">Error: ${errorText}</option>`;
+        showToast(errorText, true);
+        return;
+      }
+
+      cachedRepositories = Array.isArray(response.repositories) ? response.repositories : [];
+
+      if (cachedRepositories.length === 0) {
+        repoDropdown.innerHTML = '<option value="">-- No repositories found --</option>';
+        return;
+      }
+
+      repoDropdown.innerHTML = '<option value="">-- Select a repository --</option>';
+      for (const repo of cachedRepositories) {
+        const option = document.createElement('option');
+        option.value = repo.fullName;
+        option.textContent = `${repo.name} (${repo.isPrivate ? 'Private' : 'Public'})`;
+
+        if (currentSelectedRepo && currentSelectedRepo.fullName === repo.fullName) {
+          option.selected = true;
+          confirmSelectRepoBtn.disabled = false;
+        }
+
+        repoDropdown.appendChild(option);
+      }
+    });
+  }
+
+  /**
+   * Dropdown change handler
+   */
+  if (repoDropdown) {
+    repoDropdown.addEventListener('change', () => {
+      const selectedValue = repoDropdown.value;
+      confirmSelectRepoBtn.disabled = !selectedValue;
+    });
+  }
+
+  /**
+   * Confirm repository selection
+   */
+  if (confirmSelectRepoBtn) {
+    confirmSelectRepoBtn.addEventListener('click', () => {
+      const selectedFullName = repoDropdown.value;
+      const foundRepo = cachedRepositories.find((r) => r.fullName === selectedFullName);
+
+      if (!foundRepo) {
+        showToast('Please select a valid repository.', true);
+        return;
+      }
+
+      confirmSelectRepoBtn.disabled = true;
+      confirmSelectRepoBtn.textContent = 'Saving...';
+
+      chrome.runtime.sendMessage(
+        {
+          action: AceConstants.MESSAGES.SELECT_REPOSITORY,
+          repository: foundRepo
+        },
+        (response) => {
+          confirmSelectRepoBtn.disabled = false;
+          confirmSelectRepoBtn.textContent = 'Select Repository';
+
+          if (response && response.success) {
+            showToast('Repository selected successfully!');
+            renderSelectedRepo(response.repository);
+          } else {
+            showToast((response && response.error) || 'Failed to select repository.', true);
+          }
+        }
+      );
+    });
+  }
+
+  /**
+   * Change repository button handler
+   */
+  if (changeRepoBtn) {
+    changeRepoBtn.addEventListener('click', () => {
+      repoActiveView.classList.add('hidden');
+      repoConfigView.classList.remove('hidden');
+      showSelectMode();
+      loadUserRepositories();
+    });
+  }
+
+  /**
+   * Cancel repository change
+   */
+  if (cancelChangeRepoBtn) {
+    cancelChangeRepoBtn.addEventListener('click', () => {
+      if (currentSelectedRepo) {
+        renderSelectedRepo(currentSelectedRepo);
+      }
+    });
+  }
+
+  /**
+   * Switch to Create Mode
+   */
+  if (switchToCreateRepoBtn) {
+    switchToCreateRepoBtn.addEventListener('click', () => {
+      showCreateMode();
+    });
+  }
+
+  /**
+   * Cancel Create Mode (back to Selection)
+   */
+  if (cancelCreateModeBtn) {
+    cancelCreateModeBtn.addEventListener('click', () => {
+      showSelectMode();
+    });
+  }
+
+  /**
+   * Real-time repository name input validation
+   */
+  if (newRepoName) {
+    newRepoName.addEventListener('input', () => {
+      const err = validateRepoNameInput(newRepoName.value);
+      if (err) {
+        repoNameValidationMsg.textContent = err;
+        repoNameValidationMsg.classList.remove('hidden');
+      } else {
+        repoNameValidationMsg.classList.add('hidden');
+      }
+    });
+  }
+
+  /**
+   * Submit Create New Repository
+   */
+  if (submitCreateRepoBtn) {
+    submitCreateRepoBtn.addEventListener('click', () => {
+      const name = newRepoName.value.trim();
+      const description = newRepoDesc.value.trim();
+      const visibilityInput = document.querySelector('input[name="newRepoVisibility"]:checked');
+      const isPrivate = visibilityInput ? visibilityInput.value === 'private' : false;
+
+      const validationErr = validateRepoNameInput(name);
+      if (validationErr) {
+        repoNameValidationMsg.textContent = validationErr;
+        repoNameValidationMsg.classList.remove('hidden');
+        return;
+      }
+
+      submitCreateRepoBtn.disabled = true;
+      submitCreateRepoBtn.textContent = 'Creating...';
+      createRepoErrorMsg.classList.add('hidden');
+
+      chrome.runtime.sendMessage(
+        {
+          action: AceConstants.MESSAGES.CREATE_REPOSITORY,
+          payload: {
+            name: name,
+            description: description,
+            isPrivate: isPrivate
+          }
+        },
+        (response) => {
+          submitCreateRepoBtn.disabled = false;
+          submitCreateRepoBtn.textContent = 'Create & Select';
+
+          if (response && response.success && response.repository) {
+            showToast(`Repository '${response.repository.name}' created!`);
+            renderSelectedRepo(response.repository);
+          } else {
+            const err = (response && response.error) || 'Failed to create repository.';
+            createRepoErrorMsg.textContent = err;
+            createRepoErrorMsg.classList.remove('hidden');
+          }
+        }
+      );
+    });
+  }
+
+  /**
+   * Refresh repository list
+   */
+  if (refreshReposBtn) {
+    refreshReposBtn.addEventListener('click', () => {
+      loadUserRepositories();
+      showToast('Refreshing repositories...');
+    });
   }
 
   /**
@@ -137,7 +449,6 @@ document.addEventListener('DOMContentLoaded', () => {
     connectBtn.addEventListener('click', async () => {
       const customClientId = clientIdInput ? clientIdInput.value.trim() : '';
 
-      // Save client ID if entered
       if (customClientId) {
         await chrome.storage.local.set({
           [AceConstants.STORAGE_KEYS.CLIENT_ID]: customClientId
@@ -290,6 +601,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (changes[AceConstants.STORAGE_KEYS.AUTH_STATE] || changes[AceConstants.STORAGE_KEYS.USER_INFO]) {
       refreshAuthStatus();
+    }
+
+    if (changes[AceConstants.STORAGE_KEYS.SELECTED_REPO]) {
+      loadSelectedRepository();
     }
   });
 
