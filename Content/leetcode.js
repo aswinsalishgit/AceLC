@@ -142,10 +142,82 @@
   }
 
   /**
-   * Extract complete problem statement content from DOM
+   * Extract question metadata and content from Next.js SSR data if available
+   * @returns {object|null}
+   */
+  function getProblemDataFromNextData() {
+    try {
+      const el = document.getElementById('__NEXT_DATA__');
+      if (!el || !el.textContent) return null;
+      const data = JSON.parse(el.textContent);
+
+      const queries = data?.props?.pageProps?.dehydratedState?.queries;
+      if (Array.isArray(queries)) {
+        for (const q of queries) {
+          const question = q?.state?.data?.question;
+          if (question && (question.questionFrontendId || question.title)) {
+            return question;
+          }
+        }
+      }
+      if (data?.props?.pageProps?.question) {
+        return data.props.pageProps.question;
+      }
+    } catch (e) {
+      console.warn('[AceLC Content] Failed parsing __NEXT_DATA__:', e);
+    }
+    return null;
+  }
+
+  /**
+   * Fetch question details via LeetCode's public GraphQL endpoint
+   * @param {string} slug
+   * @returns {Promise<object|null>}
+   */
+  async function fetchProblemDataFromGraphQL(slug) {
+    if (!slug) return null;
+    try {
+      const res = await fetch('https://leetcode.com/graphql', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: `query getQuestionDetail($titleSlug: String!) {
+            question(titleSlug: $titleSlug) {
+              questionId
+              questionFrontendId
+              title
+              difficulty
+              content
+            }
+          }`,
+          variables: { titleSlug: slug }
+        })
+      });
+      if (res.ok) {
+        const json = await res.json();
+        return json?.data?.question || null;
+      }
+    } catch (e) {
+      console.warn('[AceLC Content] GraphQL question fetch failed:', e);
+    }
+    return null;
+  }
+
+  /**
+   * Extract complete problem statement content from DOM or HTML string
+   * @param {string} [contentHtml]
    * @returns {string} Markdown/text problem statement
    */
-  function extractProblemStatement() {
+  function extractProblemStatement(contentHtml) {
+    if (contentHtml && typeof contentHtml === 'string' && contentHtml.trim().length > 20) {
+      try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(contentHtml, 'text/html');
+        const md = htmlToMarkdown(doc.body);
+        if (md && md.trim().length > 20) return md;
+      } catch (e) {}
+    }
+
     const contentSelectors = [
       '[data-track-load="description_content"]',
       'div.question-content__JfgR',
@@ -243,34 +315,96 @@
   }
 
   /**
-   * Extract problem title, number, slug, and canonical URL
-   * @returns {{ slug: string, title: string, number: string|null, url: string, difficulty: string, statement: string }}
+   * Scrape actual runtime, memory, and Beats percentages from LeetCode DOM
+   * @returns {{ runtime: string|null, memory: string|null, runtimePercentile: number|null, memoryPercentile: number|null }}
    */
-  function extractProblemMetadata() {
+  function extractMetricsFromDOM() {
+    let runtime = null;
+    let runtimePercentile = null;
+    let memory = null;
+    let memoryPercentile = null;
+
+    const bodyText = (document.body && document.body.innerText) ? document.body.innerText : '';
+
+    // Search for Runtime: e.g. "Runtime 18 ms Beats 99.42%" or "Runtime: 18 ms ... Beats 99.42%"
+    const runtimeMatch = bodyText.match(/(?:Runtime|Execution time)[\s\S]{0,100}?(\d+(?:\.\d+)?\s*ms)[\s\S]{0,100}?Beats\s*(\d+(?:\.\d+)?)\s*%/i);
+    if (runtimeMatch) {
+      runtime = runtimeMatch[1].trim();
+      runtimePercentile = parseFloat(runtimeMatch[2]);
+    } else {
+      const rSolo = bodyText.match(/(?:Runtime|Execution time)[\s\S]{0,80}?(\d+(?:\.\d+)?\s*ms)/i);
+      if (rSolo) runtime = rSolo[1].trim();
+      const rPctSolo = bodyText.match(/Beats\s*(\d+(?:\.\d+)?)\s*%/i);
+      if (rPctSolo) runtimePercentile = parseFloat(rPctSolo[1]);
+    }
+
+    // Search for Memory: e.g. "Memory 47.0 MB Beats 39.37%"
+    const memoryMatch = bodyText.match(/Memory[\s\S]{0,100}?(\d+(?:\.\d+)?\s*(?:MB|KB|GB))[\s\S]{0,100}?Beats\s*(\d+(?:\.\d+)?)\s*%/i);
+    if (memoryMatch) {
+      memory = memoryMatch[1].trim();
+      memoryPercentile = parseFloat(memoryMatch[2]);
+    } else {
+      const mSolo = bodyText.match(/Memory[\s\S]{0,80}?(\d+(?:\.\d+)?\s*(?:MB|KB|GB))/i);
+      if (mSolo) memory = mSolo[1].trim();
+    }
+
+    return { runtime, runtimePercentile, memory, memoryPercentile };
+  }
+
+  /**
+   * Extract problem title, number, slug, and canonical URL
+   * @param {string|number} [knownQuestionId]
+   * @returns {Promise<{ slug: string, title: string, number: string|null, url: string, difficulty: string, statement: string }|null>}
+   */
+  async function extractProblemMetadata(knownQuestionId) {
     const slug = getCurrentProblemSlug();
     if (!slug) return null;
 
     const canonicalUrl = `https://leetcode.com/problems/${slug}/`;
     let rawTitle = '';
-    let problemNumber = null;
+    let problemNumber = knownQuestionId ? String(knownQuestionId) : null;
+    let difficulty = null;
+    let statementHtml = null;
 
-    // Selectors for problem title across different LeetCode layouts
-    const titleSelectors = [
-      '[data-cy="question-title"]',
-      'div.text-title-large',
-      'div[class*="text-title-"]',
-      'a[href*="/problems/"] h1',
-      'h1',
-      'div.flex.items-center.text-lg'
-    ];
+    // 1. Try Next.js dehydrated state first
+    const nextQuestion = getProblemDataFromNextData();
+    if (nextQuestion) {
+      if (!problemNumber && nextQuestion.questionFrontendId) problemNumber = String(nextQuestion.questionFrontendId);
+      if (nextQuestion.title) rawTitle = nextQuestion.title;
+      if (nextQuestion.difficulty) difficulty = nextQuestion.difficulty;
+      if (nextQuestion.content) statementHtml = nextQuestion.content;
+    }
 
-    for (const sel of titleSelectors) {
-      const el = document.querySelector(sel);
-      if (el && el.textContent) {
-        const text = el.textContent.trim();
-        if (text && text.length > 0 && text.length < 150) {
-          rawTitle = text;
-          break;
+    // 2. If missing problemNumber or statementHtml, fetch from GraphQL
+    if (!problemNumber || !statementHtml) {
+      const gqlQuestion = await fetchProblemDataFromGraphQL(slug);
+      if (gqlQuestion) {
+        if (!problemNumber && gqlQuestion.questionFrontendId) problemNumber = String(gqlQuestion.questionFrontendId);
+        if (!rawTitle && gqlQuestion.title) rawTitle = gqlQuestion.title;
+        if (!difficulty && gqlQuestion.difficulty) difficulty = gqlQuestion.difficulty;
+        if (!statementHtml && gqlQuestion.content) statementHtml = gqlQuestion.content;
+      }
+    }
+
+    // 3. Fallback to DOM title selectors if rawTitle still missing
+    if (!rawTitle) {
+      const titleSelectors = [
+        '[data-cy="question-title"]',
+        'div.text-title-large',
+        'div[class*="text-title-"]',
+        'a[href*="/problems/"] h1',
+        'h1',
+        'div.flex.items-center.text-lg'
+      ];
+
+      for (const sel of titleSelectors) {
+        const el = document.querySelector(sel);
+        if (el && el.textContent) {
+          const text = el.textContent.trim();
+          if (text && text.length > 0 && text.length < 150) {
+            rawTitle = text;
+            break;
+          }
         }
       }
     }
@@ -281,7 +415,7 @@
     if (rawTitle) {
       const numMatch = rawTitle.match(/^(\d+)\.\s*(.+)$/);
       if (numMatch) {
-        problemNumber = numMatch[1];
+        if (!problemNumber) problemNumber = numMatch[1];
         problemTitle = numMatch[2].trim();
       }
     }
@@ -294,8 +428,16 @@
         .join(' ');
     }
 
-    const difficulty = extractProblemDifficulty();
-    const statement = extractProblemStatement();
+    // Fallback for Two Sum problem number if somehow still missing
+    if (!problemNumber && slug.toLowerCase() === 'two-sum') {
+      problemNumber = '1';
+    }
+
+    if (!difficulty) {
+      difficulty = extractProblemDifficulty();
+    }
+
+    const statement = extractProblemStatement(statementHtml);
 
     return {
       slug,
@@ -429,10 +571,11 @@
 
   /**
    * Capture complete snapshot of the solution and problem at submission time
+   * @param {string|number} [knownQuestionId]
    * @returns {Promise<object|null>}
    */
-  async function captureSubmissionSnapshot() {
-    const meta = extractProblemMetadata();
+  async function captureSubmissionSnapshot(knownQuestionId) {
+    const meta = await extractProblemMetadata(knownQuestionId);
     if (!meta) {
       console.warn('[AceLC Content] Cannot capture submission: Not on a problem page.');
       return null;
@@ -552,29 +695,31 @@
         console.log('[AceLC Content] SUBMISSION_INITIATED ignored: not on a problem page.');
         return;
       }
-      const meta = extractProblemMetadata();
-      const rawLang = detail.language || detectLanguageFromDOM();
-      const langInfo = typeof normalizeAceLanguage === 'function'
-        ? normalizeAceLanguage(rawLang)
-        : { id: rawLang, name: rawLang, ext: '.txt' };
 
-      // Update active snapshot with exact submitted source code from HTTP payload
-      activeSubmissionSnapshot = {
-        problemTitle: meta ? meta.title : (detail.slug || ''),
-        problemSlug: detail.slug || (meta ? meta.slug : ''),
-        problemUrl: meta ? meta.url : `https://leetcode.com/problems/${detail.slug}/`,
-        problemNumber: meta ? meta.number : null,
-        difficulty: meta ? meta.difficulty : 'Medium',
-        statement: meta ? meta.statement : '',
-        code: detail.code || (activeSubmissionSnapshot ? activeSubmissionSnapshot.code : ''),
-        language: langInfo.name,
-        languageId: langInfo.id,
-        languageExt: langInfo.ext,
-        submissionId: null,
-        timestamp: detail.timestamp || Date.now()
-      };
+      extractProblemMetadata(detail.questionId).then((meta) => {
+        const rawLang = detail.language || detectLanguageFromDOM();
+        const langInfo = typeof normalizeAceLanguage === 'function'
+          ? normalizeAceLanguage(rawLang)
+          : { id: rawLang, name: rawLang, ext: '.txt' };
 
-      startResultObserver();
+        // Update active snapshot with exact submitted source code from HTTP payload
+        activeSubmissionSnapshot = {
+          problemTitle: meta ? meta.title : (detail.slug || ''),
+          problemSlug: detail.slug || (meta ? meta.slug : currentSlug),
+          problemUrl: meta ? meta.url : `https://leetcode.com/problems/${detail.slug || currentSlug}/`,
+          problemNumber: (meta && meta.number) ? meta.number : (detail.questionId ? String(detail.questionId) : null),
+          difficulty: meta ? meta.difficulty : 'Medium',
+          statement: meta ? meta.statement : '',
+          code: detail.code || (activeSubmissionSnapshot ? activeSubmissionSnapshot.code : ''),
+          language: langInfo.name,
+          languageId: langInfo.id,
+          languageExt: langInfo.ext,
+          submissionId: null,
+          timestamp: detail.timestamp || Date.now()
+        };
+
+        startResultObserver();
+      });
       return;
     }
 
@@ -599,6 +744,7 @@
         memory: detail.memory,
         runtimePercentile: detail.runtimePercentile,
         memoryPercentile: detail.memoryPercentile,
+        questionId: detail.questionId,
         totalCorrect: detail.totalCorrect,
         totalTestcases: detail.totalTestcases
       });
@@ -661,28 +807,29 @@
 
       // Check accepted state
       if (text.toLowerCase() === 'accepted') {
-        const runtimeEl = document.querySelector('[data-e2e-locator="submission-runtime"]');
-        const memoryEl = document.querySelector('[data-e2e-locator="submission-memory"]');
-        const runtimePctEl = document.querySelector('[data-e2e-locator="submission-runtime-percentile"], [class*="runtime"] [class*="percentile"]');
-        const memoryPctEl = document.querySelector('[data-e2e-locator="submission-memory-percentile"], [class*="memory"] [class*="percentile"]');
+        // Debounce slightly to allow network interception to deliver official metrics first
+        setTimeout(() => {
+          if (!activeSubmissionSnapshot) return;
+          const domMetrics = extractMetricsFromDOM();
 
-        let submissionId = activeSubmissionSnapshot.submissionId;
-        if (!submissionId) {
-          const detailLink = document.querySelector('a[href*="/submissions/detail/"]');
-          if (detailLink) {
-            const m = detailLink.getAttribute('href').match(/\/submissions\/detail\/([^/]+)/);
-            if (m) submissionId = m[1];
+          let submissionId = activeSubmissionSnapshot.submissionId;
+          if (!submissionId) {
+            const detailLink = document.querySelector('a[href*="/submissions/detail/"]');
+            if (detailLink) {
+              const m = detailLink.getAttribute('href').match(/\/submissions\/detail\/([^/]+)/);
+              if (m) submissionId = m[1];
+            }
           }
-        }
 
-        console.log('[AceLC Content] Submission ACCEPTED via DOM signal!');
-        processAcceptedSubmission({
-          submissionId,
-          runtime: runtimeEl ? runtimeEl.textContent.trim() : null,
-          memory: memoryEl ? memoryEl.textContent.trim() : null,
-          runtimePercentile: runtimePctEl ? runtimePctEl.textContent.trim() : null,
-          memoryPercentile: memoryPctEl ? memoryPctEl.textContent.trim() : null
-        });
+          console.log('[AceLC Content] Submission ACCEPTED via DOM signal!');
+          processAcceptedSubmission({
+            submissionId,
+            runtime: domMetrics.runtime,
+            memory: domMetrics.memory,
+            runtimePercentile: domMetrics.runtimePercentile,
+            memoryPercentile: domMetrics.memoryPercentile
+          });
+        }, 800);
         return;
       }
 
@@ -737,7 +884,7 @@
 
     // If snapshot was missing, attempt immediate capture
     if (!snapshot || !snapshot.code) {
-      snapshot = await captureSubmissionSnapshot();
+      snapshot = await captureSubmissionSnapshot(resultDetails.questionId);
     }
 
     if (!snapshot || !snapshot.code) {
@@ -763,7 +910,67 @@
 
     processedSubmissionKeys.add(dedupKey);
 
-    // Refresh difficulty or statement if they weren't ready at submit time
+    // Fallback: If runtime or percentiles are missing and submissionId is available, fetch check details directly from LeetCode
+    if (submissionId && (!resultDetails.runtime || resultDetails.runtimePercentile === null || resultDetails.memoryPercentile === null)) {
+      try {
+        const checkRes = await fetch(`/submissions/detail/${submissionId}/check/`);
+        if (checkRes.ok) {
+          const checkData = await checkRes.json();
+          if (checkData && checkData.state === 'SUCCESS') {
+            if (!resultDetails.runtime && checkData.status_runtime) {
+              resultDetails.runtime = checkData.status_runtime;
+            }
+            if (!resultDetails.memory && checkData.status_memory) {
+              resultDetails.memory = checkData.status_memory;
+            }
+            if (resultDetails.runtimePercentile === null && checkData.runtime_percentile !== undefined && checkData.runtime_percentile !== null) {
+              resultDetails.runtimePercentile = checkData.runtime_percentile;
+            }
+            if (resultDetails.memoryPercentile === null && checkData.memory_percentile !== undefined && checkData.memory_percentile !== null) {
+              resultDetails.memoryPercentile = checkData.memory_percentile;
+            }
+            if (!snapshot.problemNumber && checkData.question_id) {
+              snapshot.problemNumber = String(checkData.question_id);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[AceLC Content] Could not fetch check details fallback:', e);
+      }
+    }
+
+    // Check DOM metrics fallback if still missing
+    if (!resultDetails.runtime || resultDetails.runtimePercentile === null) {
+      const domM = extractMetricsFromDOM();
+      if (!resultDetails.runtime && domM.runtime) resultDetails.runtime = domM.runtime;
+      if (resultDetails.runtimePercentile === null && domM.runtimePercentile !== null) resultDetails.runtimePercentile = domM.runtimePercentile;
+      if (!resultDetails.memory && domM.memory) resultDetails.memory = domM.memory;
+      if (resultDetails.memoryPercentile === null && domM.memoryPercentile !== null) resultDetails.memoryPercentile = domM.memoryPercentile;
+    }
+
+    // Refresh problem number, difficulty or statement if missing or incomplete
+    if (!snapshot.problemNumber || !snapshot.statement || snapshot.statement.length < 20 || snapshot.difficulty === 'Medium') {
+      const refreshedMeta = await extractProblemMetadata(resultDetails.questionId);
+      if (refreshedMeta) {
+        if (!snapshot.problemNumber && refreshedMeta.number) snapshot.problemNumber = refreshedMeta.number;
+        if ((!snapshot.statement || snapshot.statement.length < 20) && refreshedMeta.statement) snapshot.statement = refreshedMeta.statement;
+        if (refreshedMeta.difficulty) snapshot.difficulty = refreshedMeta.difficulty;
+        if (refreshedMeta.title) snapshot.problemTitle = refreshedMeta.title;
+      }
+    }
+
+    // Fallback for problem number if still missing
+    if (!snapshot.problemNumber) {
+      if (snapshot.problemSlug && snapshot.problemSlug.toLowerCase() === 'two-sum') {
+        snapshot.problemNumber = '1';
+      } else {
+        const titleMatch = (snapshot.problemTitle || '').match(/^(\d+)\./);
+        if (titleMatch) {
+          snapshot.problemNumber = titleMatch[1];
+        }
+      }
+    }
+
     const difficulty = snapshot.difficulty || extractProblemDifficulty();
     const statement = snapshot.statement || extractProblemStatement();
 

@@ -19,7 +19,9 @@ const AceConstants = Object.freeze({
     IS_ACTIVATED: 'ace_is_activated',
     PENDING_SUBMISSION: 'ace_pending_submission',
     PENDING_SUBMISSION_QUEUE: 'ace_pending_submission_queue',
-    CONFIRMED_SUBMISSIONS: 'ace_confirmed_submissions'
+    CONFIRMED_SUBMISSIONS: 'ace_confirmed_submissions',
+    STATS: 'ace_stats',
+    UPLOAD_HISTORY: 'ace_upload_history'
   },
 
   // Authentication UI and process states
@@ -63,9 +65,11 @@ const AceConstants = Object.freeze({
     CONFIRM_DESTINATION_SELECTION: 'ACE_CONFIRM_DESTINATION_SELECTION',
     CANCEL_DESTINATION_SELECTION: 'ACE_CANCEL_DESTINATION_SELECTION',
 
-    // Upload actions (Phase 7)
+    // Upload actions (Phase 7 & Beyond)
     UPLOAD_SOLUTION: 'ACE_UPLOAD_SOLUTION',
     CHECK_FILE_EXISTS: 'ACE_CHECK_FILE_EXISTS',
+    GET_STATS: 'ACE_GET_STATS',
+    RESET_STATS: 'ACE_RESET_STATS',
 
     // Core actions
     GET_STATUS: 'ACE_GET_STATUS'

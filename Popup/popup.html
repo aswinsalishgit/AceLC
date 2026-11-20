@@ -117,6 +117,38 @@
           </div>
         </div>
 
+        <!-- STATISTICS DASHBOARD -->
+        <div id="statsDashboard" class="stats-card">
+          <div class="stats-greeting-box">
+            <span id="statsGreetingText" class="stats-greeting-text">Welcome! Start solving on LeetCode to build your repository.</span>
+          </div>
+
+          <div class="stats-grid">
+            <div class="stat-box stat-box-total">
+              <span class="stat-label">Solved</span>
+              <span id="statTotalSolved" class="stat-number">0</span>
+            </div>
+            <div class="stat-box stat-box-easy">
+              <span class="stat-label"><span class="diff-dot diff-dot-easy"></span>Easy</span>
+              <span id="statEasySolved" class="stat-number stat-color-easy">0</span>
+            </div>
+            <div class="stat-box stat-box-medium">
+              <span class="stat-label"><span class="diff-dot diff-dot-medium"></span>Medium</span>
+              <span id="statMediumSolved" class="stat-number stat-color-medium">0</span>
+            </div>
+            <div class="stat-box stat-box-hard">
+              <span class="stat-label"><span class="diff-dot diff-dot-hard"></span>Hard</span>
+              <span id="statHardSolved" class="stat-number stat-color-hard">0</span>
+            </div>
+          </div>
+
+          <div class="stats-footer-row">
+            <button id="resetStatsBtn" class="btn-reset-stats" type="button" title="Reset problem solving statistics">
+              Reset Statistics
+            </button>
+          </div>
+        </div>
+
         <!-- DESTINATION SELECTION CARD (PHASE 6) -->
         <div id="destSelectionCard" class="dest-card hidden">
           <div class="dest-card-header">

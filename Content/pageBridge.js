@@ -184,7 +184,7 @@
 
     const state = data.state;
     const statusMsg = data.status_msg || data.statusDisplay || '';
-    const statusCode = data.status_code;
+    const statusCode = data.status_code ?? data.statusCode;
     const runSuccess = Boolean(data.run_success || data.runSuccess);
 
     // 1. Pending or in-progress evaluation
@@ -203,11 +203,32 @@
       (state === 'SUCCESS' && runSuccess && statusMsg.toLowerCase() === 'accepted');
 
     if (isAccepted) {
+      let runtime = data.status_runtime || data.runtimeDisplay || data.runtime_display || null;
+      if (!runtime && data.runtime !== undefined && data.runtime !== null) {
+        runtime = typeof data.runtime === 'number' ? `${data.runtime} ms` : String(data.runtime);
+      }
+
+      let memory = data.status_memory || data.memoryDisplay || data.memory_display || null;
+      if (!memory && data.memory !== undefined && data.memory !== null) {
+        if (typeof data.memory === 'number' && data.memory > 1000000) {
+          memory = `${(data.memory / (1024 * 1024)).toFixed(1)} MB`;
+        } else {
+          memory = String(data.memory);
+        }
+      }
+
+      const runtimePercentile = data.runtime_percentile ?? data.runtimePercentile ?? null;
+      const memoryPercentile = data.memory_percentile ?? data.memoryPercentile ?? null;
+      const questionId = data.question_id || data.questionId || (data.question && (data.question.questionFrontendId || data.question.questionId)) || null;
+
       dispatchBridgeEvent(BRIDGE_EVENTS.SUBMISSION_ACCEPTED, {
-        submissionId: String(data.submission_id || submissionId),
+        submissionId: String(data.submission_id || data.id || submissionId),
         statusMsg: 'Accepted',
-        runtime: data.status_runtime || data.runtime || null,
-        memory: data.status_memory || data.memory || null,
+        runtime,
+        memory,
+        runtimePercentile,
+        memoryPercentile,
+        questionId,
         totalCorrect: data.total_correct ?? data.totalCorrect ?? null,
         totalTestcases: data.total_testcases ?? data.totalTestcases ?? null,
         timestamp: Date.now()
@@ -215,7 +236,7 @@
     } else if (state === 'SUCCESS' || statusMsg) {
       // Submission evaluated, but failed or rejected (Wrong Answer, TLE, etc.)
       dispatchBridgeEvent(BRIDGE_EVENTS.SUBMISSION_FAILED, {
-        submissionId: String(data.submission_id || submissionId),
+        submissionId: String(data.submission_id || data.id || submissionId),
         statusMsg: statusMsg || 'Not Accepted',
         timestamp: Date.now()
       });
@@ -298,7 +319,13 @@
         }
 
         // Intercept GraphQL response
-        if (query.includes('submitCode') || query.includes('submissionDetails') || query.includes('submissionCheck')) {
+        const isGraphQLSubmission = query.includes('submitCode') ||
+          query.includes('submissionDetails') ||
+          query.includes('submissionDetail') ||
+          query.includes('submissionCheck') ||
+          query.includes('submissionStatus');
+
+        if (isGraphQLSubmission) {
           const clone = response.clone();
           clone.json().then((resData) => {
             if (resData && resData.data) {
@@ -308,8 +335,8 @@
                   timestamp: Date.now()
                 });
               }
-              if (resData.data.submissionDetails) {
-                const details = resData.data.submissionDetails;
+              const details = resData.data.submissionDetails || resData.data.submissionDetail;
+              if (details) {
                 handleJudgingResult(details.id || details.submissionId, details);
               }
             }

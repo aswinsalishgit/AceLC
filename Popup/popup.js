@@ -80,6 +80,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const destNextBtn = document.getElementById('destNextBtn');
   const destQueueNavText = document.getElementById('destQueueNavText');
 
+  // DOM Elements - Statistics Dashboard
+  const statsDashboard = document.getElementById('statsDashboard');
+  const statsGreetingText = document.getElementById('statsGreetingText');
+  const statTotalSolved = document.getElementById('statTotalSolved');
+  const statEasySolved = document.getElementById('statEasySolved');
+  const statMediumSolved = document.getElementById('statMediumSolved');
+  const statHardSolved = document.getElementById('statHardSolved');
+  const resetStatsBtn = document.getElementById('resetStatsBtn');
+
   let activeVerificationUri = AceConstants.GITHUB.VERIFICATION_URL;
   let activeUserCode = '';
   let cachedRepositories = [];
@@ -618,6 +627,113 @@ document.addEventListener('DOMContentLoaded', () => {
 
   /**
    * =========================================================================
+   * STATISTICS DASHBOARD
+   * =========================================================================
+   */
+
+  /**
+   * Generate an encouraging personalized progress greeting based on problems solved
+   * @param {number} total 
+   * @returns {string}
+   */
+  function generateProgressGreeting(total) {
+    if (total === 0) {
+      return "Welcome! Start solving on LeetCode to build your repository.";
+    }
+    if (total === 1) {
+      return "Great start! You've solved your first problem. Keep going!";
+    }
+    if (total < 10) {
+      return `You've solved ${total} problems so far. Strong momentum!`;
+    }
+    if (total < 25) {
+      return `You've solved ${total} problems so far. Consistency is key!`;
+    }
+    if (total < 50) {
+      return `You've solved ${total} problems so far. Keep pushing forward!`;
+    }
+    if (total < 100) {
+      return `Impressive work! ${total} problems solved. Milestone ahead!`;
+    }
+    return `Mastery in action! ${total} problems solved. Outstanding!`;
+  }
+
+  /**
+   * Load and render the statistics dashboard
+   */
+  function loadStatsDashboard() {
+    chrome.storage.local.get(
+      [AceConstants.STORAGE_KEYS.STATS, AceConstants.STORAGE_KEYS.UPLOAD_HISTORY],
+      (result) => {
+        let stats = result[AceConstants.STORAGE_KEYS.STATS];
+        const history = Array.isArray(result[AceConstants.STORAGE_KEYS.UPLOAD_HISTORY])
+          ? result[AceConstants.STORAGE_KEYS.UPLOAD_HISTORY]
+          : [];
+
+        if (!stats) {
+          // Compute from history if stats key not present
+          const total = history.length;
+          const easy = history.filter((p) => (p.difficulty || '').toLowerCase() === 'easy').length;
+          const medium = history.filter((p) => (p.difficulty || '').toLowerCase() === 'medium').length;
+          const hard = history.filter((p) => (p.difficulty || '').toLowerCase() === 'hard').length;
+          stats = { total, easy, medium, hard };
+        }
+
+        renderStatsDashboard(stats);
+      }
+    );
+  }
+
+  /**
+   * Render statistics values and encouraging greeting in popup
+   * @param {{ total: number, easy: number, medium: number, hard: number }} stats 
+   */
+  function renderStatsDashboard(stats) {
+    const total = stats && typeof stats.total === 'number' ? stats.total : 0;
+    const easy = stats && typeof stats.easy === 'number' ? stats.easy : 0;
+    const medium = stats && typeof stats.medium === 'number' ? stats.medium : 0;
+    const hard = stats && typeof stats.hard === 'number' ? stats.hard : 0;
+
+    if (statTotalSolved) statTotalSolved.textContent = String(total);
+    if (statEasySolved) statEasySolved.textContent = String(easy);
+    if (statMediumSolved) statMediumSolved.textContent = String(medium);
+    if (statHardSolved) statHardSolved.textContent = String(hard);
+
+    if (statsGreetingText) {
+      statsGreetingText.textContent = generateProgressGreeting(total);
+    }
+  }
+
+  // Reset Statistics Button Listener
+  if (resetStatsBtn) {
+    resetStatsBtn.addEventListener('click', () => {
+      const confirmed = window.confirm(
+        'Reset problem solving statistics?\n\n' +
+        'This will reset your solved counts to 0 and clear AceLC entries from your GitHub repository README dashboard. Your uploaded solution files will remain safe.'
+      );
+      if (!confirmed) return;
+
+      resetStatsBtn.disabled = true;
+      resetStatsBtn.textContent = 'Resetting...';
+
+      chrome.runtime.sendMessage({ action: AceConstants.MESSAGES.RESET_STATS }, (response) => {
+        resetStatsBtn.disabled = false;
+        resetStatsBtn.textContent = 'Reset Statistics';
+
+        if (response && response.success) {
+          showFeedback('Statistics and repository dashboard reset successfully.', 'success');
+          loadStatsDashboard();
+        } else {
+          const err = response && response.error ? response.error : 'Failed to reset repository dashboard.';
+          showFeedback(err, 'error');
+          loadStatsDashboard();
+        }
+      });
+    });
+  }
+
+  /**
+   * =========================================================================
    * DESTINATION SELECTION INTERFACE (PHASE 6)
    * =========================================================================
    */
@@ -670,7 +786,8 @@ document.addEventListener('DOMContentLoaded', () => {
     destProblemTitle.textContent = `${numDisplay}${item.problemTitle}`;
     destProblemTitle.title = `${numDisplay}${item.problemTitle}`;
 
-    destLanguageBadge.textContent = item.language || 'Unknown';
+    const diffDisplay = item.difficulty ? ` [${item.difficulty}]` : '';
+    destLanguageBadge.textContent = (item.language || 'Java') + diffDisplay;
 
     if (item.runtime) {
       destRuntimeBadge.textContent = `⚡ ${item.runtime}`;
@@ -1231,9 +1348,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (changes[AceConstants.STORAGE_KEYS.PENDING_SUBMISSION_QUEUE]) {
       loadPendingQueue();
     }
+
+    if (changes[AceConstants.STORAGE_KEYS.STATS] || changes[AceConstants.STORAGE_KEYS.UPLOAD_HISTORY]) {
+      loadStatsDashboard();
+    }
   });
 
   // Initial status load
   refreshAuthStatus();
+  loadStatsDashboard();
   loadPendingQueue();
 });

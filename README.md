@@ -12,7 +12,11 @@ Built by [CodeGab](https://github.com/CodeGab) to make tracking and managing cod
 - **Destination Folder Management** - Configure multiple destination folders per repository, select existing directories, or add custom folder paths.
 - **Accepted Submission Detection** - Real-time detection of accepted LeetCode submissions with automatic source code capture, programming language normalization, and problem metadata extraction.
 - **Destination Selection Interface** - In-page modal dialog and extension popup card allowing selection of one or multiple destination folders with validation.
-- **GitHub Solution Uploading** - Uploads solution files via GitHub Contents REST API, complete with Base64 Unicode encoding, pre-upload file existence checking, conflict detection, and overwrite/skip protection.
+- **Automated Solution Uploader & Folder Structuring** - Creates standardized problem folders (`0001-Two-Sum/`) with `SOLUTION.java` and `PROBLEM.md` preserving original problem descriptions, examples, and constraints.
+- **Complexity-Based Commit Messages** - Commits uploads using actual LeetCode runtime, memory usage, and Beats percentiles (`Time: 18 ms (99.42%), Space: 47 MB (39.37%) - AceLC`).
+- **Difficulty Detection & Statistics Dashboard** - Automatically detects problem difficulty (`Easy`, `Medium`, `Hard`), tracks cumulative progress, and displays a responsive visual dashboard with dynamic greetings in the popup.
+- **Repository README Dashboard & Problem Index** - Creates or incrementally updates an organized, minimalistic `README.md` dashboard at the top of the repository with center-aligned section headings and a structured problem index.
+- **Reset Statistics** - Conveniently reset local problem-solving counts and synchronize the repository README dashboard with a single confirmation.
 - **Multi-Destination & Partial Failure Handling** - Independent tracking of upload outcomes across multiple target directories without repeating successful uploads.
 - **Queue Management** - Handles multiple submissions in sequence without mixing source code or destinations.
 
@@ -65,11 +69,15 @@ Built by [CodeGab](https://github.com/CodeGab) to make tracking and managing cod
    - An in-page modal dialog appears showing problem title, language, and configured folders.
    - Select the destination folder(s) where the solution should be saved.
    - Click **Upload Solution**.
-4. The extension uploads the solution file to GitHub:
-   - Filename format: `<problem-number>-<problem-slug>.<ext>` (e.g., `1-two-sum.py`).
-   - If the file already exists in a destination folder, AceLC prompts you to **Overwrite** or **Skip**.
+4. The extension uploads the solution to GitHub:
+   - Standardized folder format: `<FOUR-DIGIT-PROBLEM-NUMBER>-<Problem-Title>` (e.g., `0001-Two-Sum/`).
+   - Files created: `SOLUTION.java` (source code) and `PROBLEM.md` (complete problem statement, examples, constraints, and problem link).
+   - Complexity commit message: `Time: 18 ms (99.42%), Space: 47 MB (39.37%) - AceLC` using actual runtime, memory, and Beats percentiles.
+   - If a solution already exists in a destination folder, AceLC prompts you to **Overwrite** or **Skip**.
+   - The repository `README.md` dashboard is automatically created or updated at the top of the file with center-aligned headings, cumulative statistics, and a structured problem index.
+   - Cumulative difficulty counts (`Easy`, `Medium`, `Hard`) and dynamic progress greetings are updated in the popup dashboard.
    - Direct links to the uploaded files on GitHub are displayed upon completion.
-5. You can also view and manage pending submissions directly from the extension popup.
+5. You can also view and manage pending submissions directly from the extension popup, or reset statistics at any time using **Reset Statistics**.
 
 ## Known Limitations
 

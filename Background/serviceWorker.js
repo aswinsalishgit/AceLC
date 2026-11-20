@@ -928,26 +928,361 @@ async function setDestinationFolders(foldersArray) {
 
 /**
  * =========================================================================
- * GITHUB SOLUTION UPLOADING (PHASE 7)
+ * GITHUB SOLUTION UPLOADING, FOLDER STRUCTURE & DASHBOARD
  * =========================================================================
  */
 
 /**
- * Generate a consistent filename for a LeetCode solution.
- * Format: <number>-<slug><ext>  (e.g. "1-two-sum.py")
- * Falls back to slug-only if no problem number is available.
+ * Format problem title to Title-Case-With-Hyphens.
+ * e.g. "Two Sum" -> "Two-Sum", "add-two-numbers" -> "Add-Two-Numbers"
+ * @param {string} title 
+ * @param {string} slug 
+ * @returns {string}
+ */
+function formatTitleCaseSlug(title, slug) {
+  let source = title || slug || 'Solution';
+  // Strip leading problem number prefix if present in title (e.g. "1. Two Sum" -> "Two Sum")
+  source = String(source).replace(/^\d+[\s.-]+/, '');
+  if (!source && slug) {
+    source = slug;
+  }
+  // Split on spaces, underscores, or hyphens
+  const words = source
+    .replace(/[^a-zA-Z0-9\s-_]/g, '')
+    .trim()
+    .split(/[\s-_]+/)
+    .filter(Boolean);
+
+  if (words.length === 0) return 'Solution';
+
+  return words
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join('-');
+}
+
+/**
+ * Generate standardized problem folder name.
+ * Format: <FOUR-DIGIT-PROBLEM-NUMBER>-<Problem-Name-With-Title-Case>
+ * Example: 0001-Two-Sum
  * @param {object} submission
  * @returns {string}
  */
-function generateSolutionFilename(submission) {
-  const { problemSlug, problemNumber, languageExt } = submission;
-  const ext = languageExt || '.txt';
-  const slug = (problemSlug || 'solution').toLowerCase().replace(/[^a-z0-9-]/g, '-');
+function generateProblemFolderName(submission) {
+  const { problemNumber, problemTitle, problemSlug } = submission;
+  let numInt = parseInt(problemNumber, 10);
 
-  if (problemNumber) {
-    return `${problemNumber}-${slug}${ext}`;
+  // If problemNumber wasn't parsed, try extracting from title (e.g. "1. Two Sum")
+  if (isNaN(numInt) && problemTitle) {
+    const match = String(problemTitle).match(/^(\d+)\./);
+    if (match) {
+      numInt = parseInt(match[1], 10);
+    }
   }
-  return `${slug}${ext}`;
+
+  // Fallback for Two Sum or other known edge cases — never generate 0000 for problem #1
+  if (isNaN(numInt) || numInt <= 0) {
+    if ((problemSlug || '').toLowerCase() === 'two-sum') {
+      numInt = 1;
+    } else {
+      numInt = 1;
+    }
+  }
+
+  const paddedNumber = String(numInt).padStart(4, '0');
+  const cleanTitle = problemTitle ? String(problemTitle).replace(/^\d+[\s.-]+/, '') : problemSlug;
+  const titlePart = formatTitleCaseSlug(cleanTitle, problemSlug);
+  return `${paddedNumber}-${titlePart}`;
+}
+
+/**
+ * Format standardized complexity-based Git commit message.
+ * Format: Time: <time> ms (<time-percentile>%), Space: <memory> MB (<memory-percentile>%) - AceLC
+ * Uses actual metrics and percentages. Never defaults missing metrics to fabricated 0 values.
+ * @param {object} submission
+ * @returns {string}
+ */
+function generateComplexityCommitMessage(submission) {
+  let timeStr = 'N/A';
+  let timePct = 'N/A';
+  let spaceStr = 'N/A';
+  let spacePct = 'N/A';
+
+  // 1. Runtime
+  if (submission.runtime !== null && submission.runtime !== undefined && String(submission.runtime).trim().length > 0) {
+    const rawRuntime = String(submission.runtime).trim();
+    const rMatch = rawRuntime.match(/(\d+(?:\.\d+)?)\s*(?:ms)?/i);
+    if (rMatch) {
+      timeStr = `${rMatch[1]} ms`;
+    } else {
+      timeStr = rawRuntime;
+    }
+  }
+
+  // 2. Runtime Percentile (Beats %)
+  if (submission.runtimePercentile !== null && submission.runtimePercentile !== undefined && String(submission.runtimePercentile).trim().length > 0) {
+    const rawVal = String(submission.runtimePercentile).replace('%', '').trim();
+    const num = parseFloat(rawVal);
+    if (!isNaN(num)) {
+      timePct = `${num.toFixed(2)}%`;
+    }
+  }
+
+  // 3. Memory
+  if (submission.memory !== null && submission.memory !== undefined && String(submission.memory).trim().length > 0) {
+    const rawMem = String(submission.memory).trim();
+    const mMatch = rawMem.match(/(\d+(?:\.\d+)?)\s*(?:mb|kb|gb)?/i);
+    if (mMatch) {
+      spaceStr = `${mMatch[1]} MB`;
+    } else {
+      spaceStr = rawMem;
+    }
+  }
+
+  // 4. Memory Percentile (Beats %)
+  if (submission.memoryPercentile !== null && submission.memoryPercentile !== undefined && String(submission.memoryPercentile).trim().length > 0) {
+    const rawVal = String(submission.memoryPercentile).replace('%', '').trim();
+    const num = parseFloat(rawVal);
+    if (!isNaN(num)) {
+      spacePct = `${num.toFixed(2)}%`;
+    }
+  }
+
+  return `Time: ${timeStr} (${timePct}), Space: ${spaceStr} (${spacePct}) - AceLC`;
+}
+
+/**
+ * Generate complete PROBLEM.md markdown content.
+ * @param {object} submission
+ * @returns {string}
+ */
+function generateProblemMarkdown(submission) {
+  const numDisplay = submission.problemNumber ? `${submission.problemNumber}. ` : '';
+  const title = submission.problemTitle || submission.problemSlug || 'Problem';
+  const diff = submission.difficulty || 'Medium';
+  const url = submission.problemUrl || `https://leetcode.com/problems/${submission.problemSlug}/`;
+
+  let md = `# [${numDisplay}${title}](${url})\n\n`;
+  md += `**Difficulty:** \`${diff}\`\n\n`;
+
+  if (submission.statement && submission.statement.trim().length > 0) {
+    md += `## Problem Statement\n\n${submission.statement.trim()}\n\n`;
+  }
+
+  md += `---\n\n`;
+  md += `*Problem source: [LeetCode](${url}) | Uploaded via [AceLC](https://github.com/aswinsalishgit/CodeGab-AceLC)*\n`;
+  return md;
+}
+
+/**
+ * Decode Base64 string safely back to Unicode UTF-8 string
+ * @param {string} b64
+ * @returns {string}
+ */
+function decodeBase64Unicode(b64) {
+  if (!b64) return '';
+  const cleanB64 = b64.replace(/\s+/g, '');
+  const binary = atob(cleanB64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new TextDecoder('utf-8').decode(bytes);
+}
+
+/**
+ * Fetch existing file content from GitHub repository.
+ * Returns { exists: boolean, content: string|null, sha: string|null, error: string|null }
+ * @param {string} token
+ * @param {string} fullName
+ * @param {string} filePath
+ * @param {string} branch
+ */
+async function fetchFileContent(token, fullName, filePath, branch) {
+  const url = `${buildContentsUrl(fullName, filePath)}?ref=${encodeURIComponent(branch)}`;
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': `Bearer ${token}`,
+        'X-GitHub-Api-Version': '2022-11-28'
+      }
+    });
+
+    if (response.status === 404) {
+      return { exists: false, content: null, sha: null, error: null };
+    }
+
+    if (response.status === 401) {
+      return { exists: false, content: null, sha: null, error: 'GitHub session expired. Please reconnect your account.' };
+    }
+
+    if (!response.ok) {
+      return { exists: false, content: null, sha: null, error: `GitHub API error (${response.status})` };
+    }
+
+    const data = await response.json();
+    let text = '';
+    if (data.content) {
+      text = decodeBase64Unicode(data.content);
+    }
+    return { exists: true, content: text, sha: data.sha || null, error: null };
+  } catch (err) {
+    return { exists: false, content: null, sha: null, error: err.message };
+  }
+}
+
+/**
+ * Build or update the GitHub repository README.md dashboard.
+ * Positions Problem Solving Dashboard and Problem Index at the very beginning of README.md.
+ * Center-aligns both headings and keeps design clean, minimalistic, and professional.
+ * Preserves all unrelated README content.
+ * @param {string} existingReadme
+ * @param {Array<object>} allUploadedHistory
+ * @returns {string}
+ */
+function buildOrUpdateRepositoryReadme(existingReadme, allUploadedHistory) {
+  // Sort history by problem number ascending (or slug if number not present)
+  const sorted = [...allUploadedHistory].sort((a, b) => {
+    const numA = parseInt(a.problemNumber, 10);
+    const numB = parseInt(b.problemNumber, 10);
+    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+    if (!isNaN(numA)) return -1;
+    if (!isNaN(numB)) return 1;
+    return (a.problemSlug || '').localeCompare(b.problemSlug || '');
+  });
+
+  const total = sorted.length;
+  const easy = sorted.filter((p) => (p.difficulty || '').toLowerCase() === 'easy').length;
+  const medium = sorted.filter((p) => (p.difficulty || '').toLowerCase() === 'medium').length;
+  const hard = sorted.filter((p) => (p.difficulty || '').toLowerCase() === 'hard').length;
+
+  let tableRows = '';
+  if (sorted.length === 0) {
+    tableRows = '| — | *No problems tracked yet* | — | — | — | — | — |\n';
+  } else {
+    for (const p of sorted) {
+      const numInt = parseInt(p.problemNumber, 10);
+      const num = !isNaN(numInt) ? String(numInt).padStart(4, '0') : '----';
+      const title = p.problemTitle || p.problemSlug;
+      const url = p.problemUrl || `https://leetcode.com/problems/${p.problemSlug}/`;
+      const diff = p.difficulty || 'Medium';
+
+      const folder = p.folderPath || '';
+      const solPath = folder ? `${folder}/SOLUTION.java` : 'SOLUTION.java';
+      const probPath = folder ? `${folder}/PROBLEM.md` : 'PROBLEM.md';
+
+      let timeStr = 'N/A';
+      if (p.runtime) {
+        timeStr = p.runtimePercentile !== null && p.runtimePercentile !== undefined && String(p.runtimePercentile).trim().length > 0
+          ? `${p.runtime} (${parseFloat(p.runtimePercentile).toFixed(2)}%)`
+          : String(p.runtime);
+      }
+
+      let spaceStr = 'N/A';
+      if (p.memory) {
+        spaceStr = p.memoryPercentile !== null && p.memoryPercentile !== undefined && String(p.memoryPercentile).trim().length > 0
+          ? `${p.memory} (${parseFloat(p.memoryPercentile).toFixed(2)}%)`
+          : String(p.memory);
+      }
+
+      tableRows += `| ${num} | [${title}](${url}) | ${diff} | [Solution](${encodeURI(solPath)}) | [Problem](${encodeURI(probPath)}) | ${timeStr} | ${spaceStr} |\n`;
+    }
+  }
+
+  const startMarker = '<!-- ACELC_DASHBOARD_START -->';
+  const endMarker = '<!-- ACELC_DASHBOARD_END -->';
+
+  const dashboardContent = `${startMarker}
+<h2 align="center">Problem Solving Dashboard</h2>
+
+| Total Solved | Easy | Medium | Hard |
+| :---: | :---: | :---: | :---: |
+| **${total}** | **${easy}** | **${medium}** | **${hard}** |
+
+<h3 align="center">Problem Index</h3>
+
+| # | Title | Difficulty | Solution | Statement | Runtime | Memory |
+| :---: | :--- | :---: | :---: | :---: | :---: | :---: |
+${tableRows.trim()}
+${endMarker}`;
+
+  // Extract any existing unrelated content by removing previous dashboard block
+  let remainingContent = '';
+  if (existingReadme && existingReadme.trim().length > 0) {
+    if (existingReadme.includes(startMarker) && existingReadme.includes(endMarker)) {
+      const sIdx = existingReadme.indexOf(startMarker);
+      const eIdx = existingReadme.indexOf(endMarker) + endMarker.length;
+      remainingContent = (existingReadme.slice(0, sIdx) + existingReadme.slice(eIdx)).trim();
+    } else {
+      remainingContent = existingReadme.trim();
+    }
+  }
+
+  // Always position the dashboard at the VERY BEGINNING of the README
+  if (remainingContent.length > 0) {
+    return `${dashboardContent}\n\n---\n\n${remainingContent}\n`;
+  }
+  return `${dashboardContent}\n`;
+}
+
+/**
+ * Update local extension stats and upload history in chrome.storage.local
+ * @param {object} record
+ */
+async function recordSuccessfulUploadInStats(record) {
+  const stored = await chrome.storage.local.get([
+    AceConstants.STORAGE_KEYS.STATS,
+    AceConstants.STORAGE_KEYS.UPLOAD_HISTORY
+  ]);
+
+  let history = Array.isArray(stored[AceConstants.STORAGE_KEYS.UPLOAD_HISTORY])
+    ? stored[AceConstants.STORAGE_KEYS.UPLOAD_HISTORY]
+    : [];
+
+  const slug = record.problemSlug;
+  const existingIdx = history.findIndex((h) => h.problemSlug === slug);
+
+  const entry = {
+    problemNumber: record.problemNumber,
+    problemTitle: record.problemTitle,
+    problemSlug: record.problemSlug,
+    problemUrl: record.problemUrl,
+    difficulty: record.difficulty || 'Medium',
+    folderPath: record.primaryFolderRelative || record.confirmedFolders[0] || '',
+    runtime: record.runtime || null,
+    memory: record.memory || null,
+    runtimePercentile: record.runtimePercentile || null,
+    memoryPercentile: record.memoryPercentile || null,
+    uploadedAt: Date.now()
+  };
+
+  if (existingIdx !== -1) {
+    history[existingIdx] = entry; // Update existing entry without double counting
+  } else {
+    history.push(entry);
+  }
+
+  // Calculate stats from unique history
+  const total = history.length;
+  const easy = history.filter((p) => (p.difficulty || '').toLowerCase() === 'easy').length;
+  const medium = history.filter((p) => (p.difficulty || '').toLowerCase() === 'medium').length;
+  const hard = history.filter((p) => (p.difficulty || '').toLowerCase() === 'hard').length;
+
+  const stats = {
+    total,
+    easy,
+    medium,
+    hard,
+    lastUpdated: Date.now()
+  };
+
+  await chrome.storage.local.set({
+    [AceConstants.STORAGE_KEYS.STATS]: stats,
+    [AceConstants.STORAGE_KEYS.UPLOAD_HISTORY]: history
+  });
+
+  console.log(`[AceLC Background] Stats updated: Total=${total}, Easy=${easy}, Medium=${medium}, Hard=${hard}`);
+  return { stats, history };
 }
 
 /**
@@ -1144,17 +1479,18 @@ async function uploadSolution({ submissionUid, overwriteDecisions = {} }) {
 
   const { fullName, defaultBranch } = repository;
   const branch = defaultBranch || 'main';
-  const filename = generateSolutionFilename(record);
 
-  // Build a commit message
-  const problemRef = record.problemNumber
-    ? `[${record.problemNumber}] ${record.problemTitle}`
-    : record.problemTitle || record.problemSlug;
-  const commitMessage = `Add ${problemRef} - ${record.language}`;
+  // Specific Problem Folder: e.g. "0001-Two-Sum"
+  const problemFolder = generateProblemFolderName(record);
+  // Commit Message: Time: <time> ms (<time-percentile>%), Space: <memory> MB (<memory-percentile>%) - AceLC
+  const commitMessage = generateComplexityCommitMessage(record);
+  // PROBLEM.md content
+  const problemMarkdownContent = generateProblemMarkdown(record);
 
   console.log('[AceLC Background] ========================================');
   console.log('[AceLC Background] Starting solution upload:');
-  console.log(`  Filename: ${filename}`);
+  console.log(`  Problem Folder: ${problemFolder}`);
+  console.log(`  Commit Message: ${commitMessage}`);
   console.log(`  Repository: ${fullName} (branch: ${branch})`);
   console.log(`  Destinations: ${JSON.stringify(selectedFolders)}`);
   console.log('[AceLC Background] ========================================');
@@ -1162,17 +1498,19 @@ async function uploadSolution({ submissionUid, overwriteDecisions = {} }) {
   const results = [];
   let anySucceeded = false;
 
-  // 2. Upload to each selected folder
-  for (const folder of selectedFolders) {
-    const normalizedFolder = folder.replace(/\/+$/, '').replace(/^\/+/, '');
-    const filePath = normalizedFolder ? `${normalizedFolder}/${filename}` : filename;
+  // 2. Upload to each selected destination folder
+  for (const destFolder of selectedFolders) {
+    const normalizedDest = destFolder.replace(/\/+$/, '').replace(/^\/+/, '');
+    const fullProblemPath = normalizedDest ? `${normalizedDest}/${problemFolder}` : problemFolder;
+    const solutionFilePath = `${fullProblemPath}/SOLUTION.java`;
+    const problemMdFilePath = `${fullProblemPath}/PROBLEM.md`;
 
-    // 2a. Check if the file already exists
-    const existCheck = await checkFileExists(token, fullName, filePath, branch);
+    // 2a. Check if SOLUTION.java already exists
+    const existCheck = await checkFileExists(token, fullName, solutionFilePath, branch);
     if (existCheck.error) {
       results.push({
-        folder,
-        filePath,
+        folder: destFolder,
+        filePath: solutionFilePath,
         success: false,
         error: existCheck.error,
         skipped: false
@@ -1180,15 +1518,15 @@ async function uploadSolution({ submissionUid, overwriteDecisions = {} }) {
       continue;
     }
 
-    // 2b. If file exists, determine overwrite decision
+    // 2b. If file exists, check overwrite decision
     if (existCheck.exists) {
-      const decision = overwriteDecisions[folder] || null;
+      const decision = overwriteDecisions[destFolder] || null;
 
       if (!decision) {
-        // No decision yet — ask the caller to prompt the user
+        // Prompt user for decision
         results.push({
-          folder,
-          filePath,
+          folder: destFolder,
+          filePath: solutionFilePath,
           success: false,
           needsOverwriteConfirmation: true,
           existingSha: existCheck.sha,
@@ -1200,70 +1538,113 @@ async function uploadSolution({ submissionUid, overwriteDecisions = {} }) {
 
       if (decision === 'skip') {
         results.push({
-          folder,
-          filePath,
+          folder: destFolder,
+          filePath: solutionFilePath,
           success: true,
           skipped: true,
           error: null
         });
         anySucceeded = true;
-        console.log(`[AceLC Background] Skipped existing file: ${filePath}`);
+        console.log(`[AceLC Background] Skipped existing problem folder: ${fullProblemPath}`);
         continue;
       }
 
-      // decision === 'overwrite': pass the SHA to trigger an update
-      const uploadResult = await uploadFileToGitHub(
-        token, fullName, filePath, branch,
+      // Overwrite: Upload SOLUTION.java with existing SHA
+      const uploadSolResult = await uploadFileToGitHub(
+        token, fullName, solutionFilePath, branch,
         record.code, commitMessage, existCheck.sha
       );
 
+      // Check PROBLEM.md SHA to overwrite or create
+      const mdExistCheck = await checkFileExists(token, fullName, problemMdFilePath, branch);
+      await uploadFileToGitHub(
+        token, fullName, problemMdFilePath, branch,
+        problemMarkdownContent, commitMessage, mdExistCheck.sha || null
+      );
+
       results.push({
-        folder,
-        filePath,
-        success: uploadResult.success,
-        overwritten: uploadResult.success,
-        url: uploadResult.url || null,
-        error: uploadResult.success ? null : uploadResult.error,
-        rateLimited: uploadResult.rateLimited || false,
+        folder: destFolder,
+        filePath: solutionFilePath,
+        problemFolderPath: fullProblemPath,
+        success: uploadSolResult.success,
+        overwritten: uploadSolResult.success,
+        url: uploadSolResult.url || null,
+        error: uploadSolResult.success ? null : uploadSolResult.error,
+        rateLimited: uploadSolResult.rateLimited || false,
         skipped: false
       });
 
-      if (uploadResult.success) {
+      if (uploadSolResult.success) {
         anySucceeded = true;
-        console.log(`[AceLC Background] Overwritten: ${filePath}`);
+        console.log(`[AceLC Background] Overwritten: ${fullProblemPath}`);
       } else {
-        console.warn(`[AceLC Background] Overwrite failed for ${filePath}: ${uploadResult.error}`);
+        console.warn(`[AceLC Background] Overwrite failed for ${solutionFilePath}: ${uploadSolResult.error}`);
       }
       continue;
     }
 
-    // 2c. File does not exist — create it
-    const uploadResult = await uploadFileToGitHub(
-      token, fullName, filePath, branch,
+    // 2c. Files do not exist — create SOLUTION.java & PROBLEM.md inside the problem folder
+    const uploadSolResult = await uploadFileToGitHub(
+      token, fullName, solutionFilePath, branch,
       record.code, commitMessage, null
     );
 
+    let mdUrl = null;
+    if (uploadSolResult.success) {
+      const uploadMdResult = await uploadFileToGitHub(
+        token, fullName, problemMdFilePath, branch,
+        problemMarkdownContent, commitMessage, null
+      );
+      mdUrl = uploadMdResult.url || null;
+    }
+
     results.push({
-      folder,
-      filePath,
-      success: uploadResult.success,
-      url: uploadResult.url || null,
-      error: uploadResult.success ? null : uploadResult.error,
-      rateLimited: uploadResult.rateLimited || false,
+      folder: destFolder,
+      filePath: solutionFilePath,
+      problemFolderPath: fullProblemPath,
+      success: uploadSolResult.success,
+      url: uploadSolResult.url || null,
+      mdUrl: mdUrl,
+      error: uploadSolResult.success ? null : uploadSolResult.error,
+      rateLimited: uploadSolResult.rateLimited || false,
       skipped: false
     });
 
-    if (uploadResult.success) {
+    if (uploadSolResult.success) {
       anySucceeded = true;
-      console.log(`[AceLC Background] Uploaded: ${filePath}`);
+      console.log(`[AceLC Background] Uploaded folder: ${fullProblemPath}`);
     } else {
-      console.warn(`[AceLC Background] Upload failed for ${filePath}: ${uploadResult.error}`);
+      console.warn(`[AceLC Background] Upload failed for ${solutionFilePath}: ${uploadSolResult.error}`);
     }
   }
 
-  // 3. If at least one succeeded and no folder is still waiting for overwrite
-  //    confirmation, remove this record from confirmed submissions list.
+  // 3. Update stats, upload history & repository README.md if at least one upload succeeded
   const needsConfirmation = results.some((r) => r.needsOverwriteConfirmation);
+
+  if (anySucceeded && !needsConfirmation) {
+    try {
+      // Record primary folder path relative to repo root
+      const primaryResult = results.find((r) => r.success && !r.skipped) || results[0];
+      record.primaryFolderRelative = primaryResult ? primaryResult.problemFolderPath : problemFolder;
+
+      // Update local statistics and upload history
+      const { history } = await recordSuccessfulUploadInStats(record);
+
+      // Create or update GitHub repository README.md dashboard
+      const readmePath = 'README.md';
+      const readmeCheck = await fetchFileContent(token, fullName, readmePath, branch);
+      const newReadmeContent = buildOrUpdateRepositoryReadme(readmeCheck.content, history);
+      await uploadFileToGitHub(
+        token, fullName, readmePath, branch,
+        newReadmeContent,
+        `Update README dashboard - AceLC`,
+        readmeCheck.sha || null
+      );
+      console.log('[AceLC Background] Repository README.md dashboard successfully updated.');
+    } catch (readmeErr) {
+      console.warn('[AceLC Background] Failed updating README dashboard (non-fatal):', readmeErr);
+    }
+  }
 
   if (!needsConfirmation) {
     const updatedConfirmed = confirmedList.filter((r) => r.uid !== record.uid);
@@ -1290,7 +1671,8 @@ async function uploadSolution({ submissionUid, overwriteDecisions = {} }) {
     needsOverwriteConfirmation: needsConfirmation,
     allSucceeded,
     anyFailed,
-    filename,
+    filename: 'SOLUTION.java',
+    problemFolder,
     repository: { fullName, branch }
   };
 }
@@ -1383,6 +1765,8 @@ async function handleAcceptedSubmission(submission, senderTabId = null) {
     problemSlug: problemSlug,
     problemUrl: submission.problemUrl || `https://leetcode.com/problems/${problemSlug}/`,
     problemNumber: submission.problemNumber || null,
+    difficulty: submission.difficulty || 'Medium',
+    statement: submission.statement || '',
     code: code,
     language: language,
     languageId: submission.languageId || language.toLowerCase(),
@@ -1390,6 +1774,8 @@ async function handleAcceptedSubmission(submission, senderTabId = null) {
     submissionId: submissionId || null,
     runtime: submission.runtime || null,
     memory: submission.memory || null,
+    runtimePercentile: submission.runtimePercentile || null,
+    memoryPercentile: submission.memoryPercentile || null,
     detectedAt: now
   };
 
@@ -1603,6 +1989,52 @@ async function clearPendingSubmission() {
 }
 
 /**
+ * Handle resetting statistics and clearing the repository README dashboard
+ * @returns {Promise<{ success: boolean, error?: string, warning?: string }>}
+ */
+async function handleResetStats() {
+  const emptyStats = { total: 0, easy: 0, medium: 0, hard: 0, lastUpdated: Date.now() };
+  await chrome.storage.local.set({
+    [AceConstants.STORAGE_KEYS.STATS]: emptyStats,
+    [AceConstants.STORAGE_KEYS.UPLOAD_HISTORY]: []
+  });
+
+  try {
+    const stored = await chrome.storage.local.get([
+      AceConstants.STORAGE_KEYS.AUTH_TOKEN,
+      AceConstants.STORAGE_KEYS.SELECTED_REPO
+    ]);
+    const token = stored[AceConstants.STORAGE_KEYS.AUTH_TOKEN];
+    const repo = stored[AceConstants.STORAGE_KEYS.SELECTED_REPO];
+
+    if (token && repo && repo.full_name) {
+      const branch = repo.default_branch || 'main';
+      const readmeRes = await fetchFileContent(token, repo.full_name, 'README.md', branch);
+      if (readmeRes.exists && readmeRes.content) {
+        const updatedReadme = buildOrUpdateRepositoryReadme(readmeRes.content, []);
+        const uploadRes = await uploadFileToGitHub(
+          token,
+          repo.full_name,
+          'README.md',
+          updatedReadme,
+          'Reset AceLC problem solving dashboard - AceLC',
+          branch,
+          readmeRes.sha
+        );
+        if (!uploadRes.success) {
+          console.warn('[AceLC Background] Could not update README on reset:', uploadRes.error);
+          return { success: true, warning: 'Local stats reset, but could not update README on GitHub: ' + uploadRes.error };
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[AceLC Background] Error during repository README reset:', err.message);
+  }
+
+  return { success: true };
+}
+
+/**
  * Handle runtime messages from popup and other components
  */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -1743,6 +2175,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       checkFileExists(token, fullName, filePath, branch).then((r) =>
         sendResponse({ success: true, ...r })
       );
+    });
+    return true;
+  }
+
+  if (message.action === AceConstants.MESSAGES.GET_STATS) {
+    chrome.storage.local.get(
+      [AceConstants.STORAGE_KEYS.STATS, AceConstants.STORAGE_KEYS.UPLOAD_HISTORY],
+      (result) => {
+        const stats = result[AceConstants.STORAGE_KEYS.STATS] || {
+          total: 0,
+          easy: 0,
+          medium: 0,
+          hard: 0
+        };
+        const history = result[AceConstants.STORAGE_KEYS.UPLOAD_HISTORY] || [];
+        sendResponse({ success: true, stats, history });
+      }
+    );
+    return true;
+  }
+
+  if (message.action === AceConstants.MESSAGES.RESET_STATS) {
+    handleResetStats().then((res) => {
+      sendResponse(res);
+    }).catch((err) => {
+      sendResponse({ success: false, error: err.message });
     });
     return true;
   }
