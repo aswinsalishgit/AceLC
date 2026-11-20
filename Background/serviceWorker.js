@@ -1176,9 +1176,10 @@ function buildOrUpdateRepositoryReadme(existingReadme, allUploadedHistory) {
   const medium = sorted.filter((p) => (p.difficulty || '').toLowerCase() === 'medium').length;
   const hard = sorted.filter((p) => (p.difficulty || '').toLowerCase() === 'hard').length;
 
-  let tableRows = '';
+  // Build HTML table rows — HTML tables always render centered & single-line in GitHub
+  let htmlTableRows = '';
   if (sorted.length === 0) {
-    tableRows = '| — | *No problems tracked yet* | — | — | — | — | — |\n';
+    htmlTableRows = '<tr><td colspan="7" align="center"><em>No problems tracked yet</em></td></tr>';
   } else {
     for (const p of sorted) {
       let numInt = parseInt(p.problemNumber, 10);
@@ -1228,7 +1229,7 @@ function buildOrUpdateRepositoryReadme(existingReadme, allUploadedHistory) {
         }
       }
 
-      tableRows += `| ${num} | [${title}](${url}) | ${diff} | [Solution](${encodeURI(solPath)}) | [Problem](${encodeURI(probPath)}) | ${timeStr} | ${spaceStr} |\n`;
+      htmlTableRows += `<tr><td align="center">${num}</td><td align="center"><a href="${url}">${title}</a></td><td align="center">${diff}</td><td align="center"><a href="${encodeURI(solPath)}">Solution</a></td><td align="center"><a href="${encodeURI(probPath)}">Problem</a></td><td align="center">${timeStr}</td><td align="center">${spaceStr}</td></tr>`;
     }
   }
 
@@ -1240,15 +1241,17 @@ function buildOrUpdateRepositoryReadme(existingReadme, allUploadedHistory) {
 
 <h2>Problem Solving Dashboard</h2>
 
-| Total Solved | Easy | Medium | Hard |
-| :---: | :---: | :---: | :---: |
-| **${total}** | **${easy}** | **${medium}** | **${hard}** |
+<table>
+<tr><th>Total Solved</th><th>Easy</th><th>Medium</th><th>Hard</th></tr>
+<tr><td align="center"><b>${total}</b></td><td align="center"><b>${easy}</b></td><td align="center"><b>${medium}</b></td><td align="center"><b>${hard}</b></td></tr>
+</table>
 
 <h3>Problem Index</h3>
 
-| # | Title | Difficulty | Solution | Statement | Runtime | Memory |
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-${tableRows.trim()}
+<table>
+<tr><th>#</th><th>Title</th><th>Difficulty</th><th>Solution</th><th>Statement</th><th>Runtime</th><th>Memory</th></tr>
+${htmlTableRows}
+</table>
 
 </div>
 ${endMarker}`;

@@ -11,9 +11,9 @@
     <header class="header">
       <div class="brand">
         <h1>AceLC Settings</h1>
-        <span class="badge">Phase 4</span>
+        <span class="badge">MVP</span>
       </div>
-      <p class="tagline">Configure GitHub connection, repository, and destination folders</p>
+      <p class="tagline">Configure GitHub connection, repository, destination folders, and solution uploads</p>
     </header>
 
     <div id="optionsToast" class="toast hidden"></div>
@@ -36,9 +36,9 @@
         </p>
       </section>
 
-      <!-- Target Repository Configuration (Phase 3 & 4) -->
+      <!-- Target Repository Configuration -->
       <section id="repoSettingsCard" class="card">
-        <h2>Target Repository & Folders</h2>
+        <h2>Target Repository &amp; Folders</h2>
         <p class="text-muted">
           Destination repository and folders where your accepted LeetCode solutions will be stored.
         </p>
@@ -65,7 +65,7 @@
           </div>
         </div>
 
-        <!-- Destination Folders Management (Phase 4) -->
+        <!-- Destination Folders Management -->
         <div id="optionsFoldersSection" class="form-group hidden">
           <hr class="options-divider">
           <div class="folders-header-row">
@@ -127,11 +127,29 @@
         </button>
       </section>
 
+      <!-- Solution Upload Settings -->
+      <section class="card">
+        <h2>Solution Upload Behaviour</h2>
+        <p class="text-muted">
+          How AceLC handles uploading accepted LeetCode solutions to your repository.
+        </p>
+        <ul class="text-muted" style="padding-left:1.2rem; line-height:1.8">
+          <li>Each solution is placed in a folder named <code>NNNN-Problem-Title</code> (e.g. <code>0001-Two-Sum</code>).</li>
+          <li>Two files are created per problem: <code>SOLUTION.java</code> (source code) and <code>PROBLEM.md</code> (full problem statement).</li>
+          <li>Commit messages include actual LeetCode runtime, memory, and Beats percentiles.</li>
+          <li>If a file already exists you will be prompted to overwrite or skip.</li>
+          <li>The repository <code>README.md</code> dashboard is automatically created or updated after every upload.</li>
+        </ul>
+      </section>
+
       <!-- About AceLC -->
       <section class="card">
         <h2>About AceLC</h2>
         <p class="text-muted">
           AceLC is an open-source tool developed under CodeGab to automatically upload accepted LeetCode solutions directly to your GitHub repository.
+        </p>
+        <p class="text-muted" style="margin-top:0.5rem">
+          <strong>Version:</strong> 1.0.0 &bull; <strong>Architecture:</strong> Chrome Extension Manifest V3
         </p>
       </section>
     </main>

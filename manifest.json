@@ -13,10 +13,22 @@
   ],
   "action": {
     "default_popup": "Popup/popup.html",
-    "default_title": "AceLC"
+    "default_title": "AceLC",
+    "default_icon": {
+      "16": "Popup/icon.png",
+      "32": "Popup/icon.png",
+      "48": "Popup/icon.png",
+      "128": "Popup/icon.png"
+    }
+  },
+  "icons": {
+    "16": "Popup/icon.png",
+    "32": "Popup/icon.png",
+    "48": "Popup/icon.png",
+    "128": "Popup/icon.png"
   },
   "options_ui": {
-    "page": "Options/options.html",
+    "page": "Settings/options.html",
     "open_in_tab": true
   },
   "background": {

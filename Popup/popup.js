@@ -1321,7 +1321,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (chrome.runtime.openOptionsPage) {
         chrome.runtime.openOptionsPage();
       } else {
-        window.open(chrome.runtime.getURL('Options/options.html'));
+        window.open(chrome.runtime.getURL('Settings/options.html'));
       }
     });
   }
