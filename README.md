@@ -1,8 +1,9 @@
-# AceLC
+<h1 align="center">CodeGab AceLC (by Aswin Salish)</h1>
 
-**AceLC** is an open-source Chrome extension that automatically uploads your accepted [LeetCode](https://leetcode.com/) solutions to your [GitHub](https://github.com/) repository.
+<p align="center"><img width="300" height="300" alt="Glossy Cat Coding Mascot-Photoroom" src="Popup/icon.png" /></p>
 
-Built by [CodeGab](https://github.com/CodeGab) to make tracking and managing coding practice simple and effortless.
+
+**AceLC** is an open-source Manifest V3 Chrome extension developed under **CodeGab** that automatically uploads accepted [LeetCode](https://leetcode.com/) solutions directly to your [GitHub](https://github.com/) repositories.
 
 ## Features
 
