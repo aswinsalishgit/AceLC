@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AceLC",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Sync accepted LeetCode solutions directly to your GitHub repositories.",
   "permissions": [
     "storage",
