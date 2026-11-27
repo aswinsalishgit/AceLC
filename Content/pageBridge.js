@@ -130,6 +130,9 @@
   const SUBMIT_URL_REGEX = /\/problems\/([^/]+)\/submit\/?/i;
   const CHECK_URL_REGEX = /\/submissions\/detail\/([^/]+)\/check\/?/i;
 
+  // Track explicit submit submission IDs to strictly ignore testcase "Run Code" checks
+  const activeSubmittedIds = new Set();
+
   /**
    * Parse submission payload from request body
    * @param {any} body 
@@ -182,6 +185,18 @@
   function handleJudgingResult(submissionId, data) {
     if (!data || typeof data !== 'object') return;
 
+    const subIdStr = String(submissionId);
+
+    // If active submissions are being tracked, ignore any judging check for Run Code (interpret tasks)
+    if (activeSubmittedIds.size > 0 && !activeSubmittedIds.has(subIdStr)) {
+      return;
+    }
+
+    // Ignore if this is explicitly a Run Code interpret response
+    if (data.interpret_id || data.interpret_status_code || data.test_case) {
+      return;
+    }
+
     const state = data.state;
     const statusMsg = data.status_msg || data.statusDisplay || '';
     const statusCode = data.status_code ?? data.statusCode;
@@ -190,7 +205,7 @@
     // 1. Pending or in-progress evaluation
     if (state === 'PENDING' || state === 'STARTED') {
       dispatchBridgeEvent(BRIDGE_EVENTS.SUBMISSION_PENDING, {
-        submissionId: String(submissionId),
+        submissionId: subIdStr,
         timestamp: Date.now()
       });
       return;
@@ -203,6 +218,9 @@
       (state === 'SUCCESS' && runSuccess && statusMsg.toLowerCase() === 'accepted');
 
     if (isAccepted) {
+      // Remove from active tracking once processed
+      activeSubmittedIds.delete(subIdStr);
+
       let runtime = data.status_runtime || data.runtimeDisplay || data.runtime_display || null;
       if (!runtime && data.runtime !== undefined && data.runtime !== null) {
         runtime = typeof data.runtime === 'number' ? `${data.runtime} ms` : String(data.runtime);
@@ -222,7 +240,7 @@
       const questionId = data.question_id || data.questionId || (data.question && (data.question.questionFrontendId || data.question.questionId)) || null;
 
       dispatchBridgeEvent(BRIDGE_EVENTS.SUBMISSION_ACCEPTED, {
-        submissionId: String(data.submission_id || data.id || submissionId),
+        submissionId: String(data.submission_id || data.id || subIdStr),
         statusMsg: 'Accepted',
         runtime,
         memory,
@@ -234,9 +252,10 @@
         timestamp: Date.now()
       });
     } else if (state === 'SUCCESS' || statusMsg) {
+      activeSubmittedIds.delete(subIdStr);
       // Submission evaluated, but failed or rejected (Wrong Answer, TLE, etc.)
       dispatchBridgeEvent(BRIDGE_EVENTS.SUBMISSION_FAILED, {
-        submissionId: String(data.submission_id || data.id || submissionId),
+        submissionId: String(data.submission_id || data.id || subIdStr),
         statusMsg: statusMsg || 'Not Accepted',
         timestamp: Date.now()
       });
@@ -281,9 +300,11 @@
       try {
         const clone = response.clone();
         clone.json().then((data) => {
-          if (data && (data.submission_id || data.interpret_id)) {
+          if (data && data.submission_id) {
+            const subIdStr = String(data.submission_id);
+            activeSubmittedIds.add(subIdStr);
             dispatchBridgeEvent(BRIDGE_EVENTS.SUBMISSION_ID_ASSIGNED, {
-              submissionId: String(data.submission_id || data.interpret_id),
+              submissionId: subIdStr,
               timestamp: Date.now()
             });
           }
@@ -330,8 +351,10 @@
           clone.json().then((resData) => {
             if (resData && resData.data) {
               if (resData.data.submitCode && resData.data.submitCode.submissionId) {
+                const subIdStr = String(resData.data.submitCode.submissionId);
+                activeSubmittedIds.add(subIdStr);
                 dispatchBridgeEvent(BRIDGE_EVENTS.SUBMISSION_ID_ASSIGNED, {
-                  submissionId: String(resData.data.submitCode.submissionId),
+                  submissionId: subIdStr,
                   timestamp: Date.now()
                 });
               }
@@ -373,9 +396,11 @@
         try {
           if (this.status >= 200 && this.status < 300) {
             const data = JSON.parse(this.responseText);
-            if (submitMatch && (data.submission_id || data.interpret_id)) {
+            if (submitMatch && data.submission_id) {
+              const subIdStr = String(data.submission_id);
+              activeSubmittedIds.add(subIdStr);
               dispatchBridgeEvent(BRIDGE_EVENTS.SUBMISSION_ID_ASSIGNED, {
-                submissionId: String(data.submission_id || data.interpret_id),
+                submissionId: subIdStr,
                 timestamp: Date.now()
               });
             }

@@ -347,26 +347,54 @@
     // Normalize newlines in body text so multi-line text matches cleanly
     const bodyText = rawBodyText.replace(/[\r\n\t]+/g, ' ');
 
-    // Search for Runtime: e.g. "Runtime 18 ms Beats 99.42%" or "Runtime: 18 ms ... Beats 99.42%"
-    const runtimeMatch = bodyText.match(/(?:Runtime|Execution time)[\s\S]{0,100}?(\d+(?:\.\d+)?\s*ms)[\s\S]{0,100}?Beats\s*(\d+(?:\.\d+)?)\s*%/i);
+    // 1. Search for Runtime: e.g. "Runtime 2 ms | Beats 62.71%" or "Runtime: 2 ms Beats 62.71%"
+    const runtimeMatch = bodyText.match(/(?:Runtime|Execution time)[\s\S]{0,150}?(\d+(?:\.\d+)?\s*ms)[\s\S]{0,150}?Beats\s*(\d+(?:\.\d+)?)\s*%/i);
     if (runtimeMatch) {
       runtime = sanitizeMetric(runtimeMatch[1]);
       runtimePercentile = parseFloat(runtimeMatch[2]);
     } else {
       const rSolo = bodyText.match(/(?:Runtime|Execution time)[\s\S]{0,80}?(\d+(?:\.\d+)?\s*ms)/i);
       if (rSolo) runtime = sanitizeMetric(rSolo[1]);
-      const rPctSolo = bodyText.match(/Beats\s*(\d+(?:\.\d+)?)\s*%/i);
+      const rPctSolo = bodyText.match(/(?:Runtime|Execution time)[\s\S]{0,180}?Beats\s*(\d+(?:\.\d+)?)\s*%/i);
       if (rPctSolo) runtimePercentile = parseFloat(rPctSolo[1]);
     }
 
-    // Search for Memory: e.g. "Memory 47.0 MB Beats 39.37%"
-    const memoryMatch = bodyText.match(/Memory[\s\S]{0,100}?(\d+(?:\.\d+)?\s*(?:MB|KB|GB))[\s\S]{0,100}?Beats\s*(\d+(?:\.\d+)?)\s*%/i);
+    // 2. Search for Memory: e.g. "Memory 85.09 MB | Beats 52.60%"
+    const memoryMatch = bodyText.match(/Memory[\s\S]{0,150}?(\d+(?:\.\d+)?\s*(?:MB|KB|GB))[\s\S]{0,150}?Beats\s*(\d+(?:\.\d+)?)\s*%/i);
     if (memoryMatch) {
       memory = sanitizeMetric(memoryMatch[1]);
       memoryPercentile = parseFloat(memoryMatch[2]);
     } else {
       const mSolo = bodyText.match(/Memory[\s\S]{0,80}?(\d+(?:\.\d+)?\s*(?:MB|KB|GB))/i);
       if (mSolo) memory = sanitizeMetric(mSolo[1]);
+      const mPctSolo = bodyText.match(/Memory[\s\S]{0,180}?Beats\s*(\d+(?:\.\d+)?)\s*%/i);
+      if (mPctSolo) memoryPercentile = parseFloat(mPctSolo[1]);
+    }
+
+    // 3. Fallback: inspect specific DOM leaf elements for Beats percentages
+    if (runtimePercentile == null || memoryPercentile == null) {
+      try {
+        const allLeafs = Array.from(document.querySelectorAll('span, div, p')).filter((el) => {
+          return el.children.length === 0 && (el.textContent || '').includes('Beats') && (el.textContent || '').includes('%');
+        });
+        for (const el of allLeafs) {
+          const txt = el.textContent || '';
+          const m = txt.match(/Beats\s*(\d+(?:\.\d+)?)\s*%/i);
+          if (m) {
+            const val = parseFloat(m[1]);
+            const parentContext = (el.closest('div[class*="flex"], div[class*="container"]') || el.parentElement || {}).textContent || '';
+            if (runtimePercentile == null && /Runtime/i.test(parentContext)) {
+              runtimePercentile = val;
+            } else if (memoryPercentile == null && /Memory/i.test(parentContext)) {
+              memoryPercentile = val;
+            } else if (runtimePercentile == null) {
+              runtimePercentile = val;
+            } else if (memoryPercentile == null) {
+              memoryPercentile = val;
+            }
+          }
+        }
+      } catch (e) {}
     }
 
     return { runtime, runtimePercentile, memory, memoryPercentile };
@@ -653,6 +681,9 @@
   // 3. SUBMISSION TRIGGER LISTENER (BUTTON CLICK & KEYBOARD SHORTCUT)
   // =========================================================================
 
+  // Flag indicating a verified user Submit action was triggered (not Run Code)
+  let isExplicitSubmitTriggered = false;
+
   /**
    * Check if a DOM element is the Submit button
    * @param {Element} element 
@@ -663,14 +694,32 @@
     const btn = element.closest('button, [role="button"]');
     if (!btn) return false;
 
+    // Check visible text - MUST BE Submit, and NOT Run
+    const text = (btn.textContent || '').trim().toLowerCase();
+    if (text.includes('run') || text.includes('test')) return false;
+
     // Check data attributes
     if (btn.getAttribute('data-e2e-locator') === 'console-submit-button') return true;
     if (btn.getAttribute('data-cypress') === 'submit-code-btn') return true;
 
-    // Check visible text
-    const text = (btn.textContent || '').trim().toLowerCase();
     if (text === 'submit' || text.startsWith('submit')) return true;
 
+    return false;
+  }
+
+  /**
+   * Check if a DOM element is the Run Code button
+   * @param {Element} element
+   * @returns {boolean}
+   */
+  function isRunButton(element) {
+    if (!element) return false;
+    const btn = element.closest('button, [role="button"]');
+    if (!btn) return false;
+
+    const text = (btn.textContent || '').trim().toLowerCase();
+    if (text === 'run' || text.startsWith('run') || text.includes('run code') || text.includes('testcase')) return true;
+    if (btn.getAttribute('data-e2e-locator') === 'console-run-button') return true;
     return false;
   }
 
@@ -681,6 +730,7 @@
     const slug = getCurrentProblemSlug();
     if (!slug) return;
 
+    isExplicitSubmitTriggered = true;
     console.log('[AceLC Content] Submission action triggered by user on problem:', slug);
 
     // Snapshot immediately at submission time
@@ -690,17 +740,30 @@
     startResultObserver();
   }
 
-  // Global event delegation for submit button clicks
+  // Global event delegation for clicks (Submit vs Run)
   document.addEventListener('click', (event) => {
     if (isSubmitButton(event.target)) {
       onSubmissionTriggered();
+    } else if (isRunButton(event.target)) {
+      // Explicitly ignore Run button clicks
+      console.log('[AceLC Content] Run Code clicked by user. Modal will NOT be shown.');
+      isExplicitSubmitTriggered = false;
+      activeSubmissionSnapshot = null;
+      stopResultObserver();
     }
   }, true);
 
-  // Keyboard shortcut listener: Ctrl+Enter / Cmd+Enter
+  // Keyboard shortcut listener: LeetCode Submit is Ctrl+Alt+Enter or Cmd+Alt+Enter.
+  // Note: Plain Ctrl+Enter is "Run Code" in LeetCode, so we explicitly do NOT trigger on plain Ctrl+Enter.
   document.addEventListener('keydown', (event) => {
-    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+    if ((event.ctrlKey || event.metaKey) && event.altKey && event.key === 'Enter') {
       onSubmissionTriggered();
+    } else if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key === 'Enter') {
+      // Plain Ctrl+Enter: Run Code shortcut in LeetCode
+      console.log('[AceLC Content] Run Code shortcut pressed. Modal will NOT be shown.');
+      isExplicitSubmitTriggered = false;
+      activeSubmissionSnapshot = null;
+      stopResultObserver();
     }
   }, true);
 
@@ -714,6 +777,7 @@
 
     if (type === Constants.BRIDGE_EVENTS.SUBMISSION_INITIATED) {
       console.log('[AceLC Content] Network submission initiated intercepted for:', detail.slug);
+      isExplicitSubmitTriggered = true;
       // Only process on actual problem pages — skip submission detail/results pages
       const currentSlug = getCurrentProblemSlug();
       if (!currentSlug) {
@@ -811,11 +875,12 @@
    * Inspect DOM for Accepted submission indicator
    */
   function inspectDOMForSubmissionResult() {
-    if (!activeSubmissionSnapshot) return;
+    if (!activeSubmissionSnapshot || !isExplicitSubmitTriggered) return;
 
     // Do not process if submission is older than 90 seconds
     if (Date.now() - activeSubmissionSnapshot.timestamp > 90000) {
       activeSubmissionSnapshot = null;
+      isExplicitSubmitTriggered = false;
       stopResultObserver();
       return;
     }
@@ -834,7 +899,7 @@
       if (text.toLowerCase() === 'accepted') {
         // Debounce slightly to allow network interception to deliver official metrics first
         setTimeout(() => {
-          if (!activeSubmissionSnapshot) return;
+          if (!activeSubmissionSnapshot || !isExplicitSubmitTriggered) return;
           const domMetrics = extractMetricsFromDOM();
 
           let submissionId = activeSubmissionSnapshot.submissionId;
@@ -864,6 +929,7 @@
         if (text.toLowerCase().includes(kw)) {
           console.log(`[AceLC Content] DOM result showed "${text}". (Ignored - Not Accepted)`);
           activeSubmissionSnapshot = null;
+          isExplicitSubmitTriggered = false;
           stopResultObserver();
           return;
         }
@@ -905,6 +971,12 @@
    * @param {object} resultDetails 
    */
   async function processAcceptedSubmission(resultDetails) {
+    if (!isExplicitSubmitTriggered) {
+      console.log('[AceLC Content] Ignoring accepted event: not triggered by an explicit Submit action.');
+      return;
+    }
+    isExplicitSubmitTriggered = false;
+
     let snapshot = activeSubmissionSnapshot;
 
     // If snapshot was missing, attempt immediate capture
@@ -1193,6 +1265,21 @@
         background: #143521;
         color: #34d399;
       }
+      .acelc-diff-easy {
+        background: rgba(44, 187, 93, 0.15) !important;
+        color: #2cbb5d !important;
+        border: 1px solid rgba(44, 187, 93, 0.3) !important;
+      }
+      .acelc-diff-medium {
+        background: rgba(255, 161, 22, 0.15) !important;
+        color: #ffa116 !important;
+        border: 1px solid rgba(255, 161, 22, 0.3) !important;
+      }
+      .acelc-diff-hard {
+        background: rgba(239, 68, 68, 0.15) !important;
+        color: #f87171 !important;
+        border: 1px solid rgba(239, 68, 68, 0.3) !important;
+      }
       .acelc-section-label {
         font-size: 10px;
         font-weight: 700;
@@ -1268,6 +1355,30 @@
         gap: 8px;
         margin-top: 4px;
       }
+      .acelc-btn-push {
+        flex: 1;
+        background: #282828;
+        color: #2cbb5d;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        padding: 8px 16px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        transition: all 0.15s ease;
+      }
+      .acelc-btn-push:hover:not(:disabled) {
+        background: #363636;
+        border-color: rgba(255, 255, 255, 0.16);
+      }
+      .acelc-btn-push:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
       .acelc-btn-confirm {
         flex: 1;
         background: #ffa116;
@@ -1305,6 +1416,67 @@
       }
       .acelc-btn-cancel:hover {
         background: #444444;
+      }
+      .acelc-result-card {
+        background: #262626;
+        border: 1px solid #383838;
+        border-radius: 10px;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .acelc-result-status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(44, 187, 93, 0.15);
+        color: #2cbb5d;
+        border: 1px solid rgba(44, 187, 93, 0.3);
+        border-radius: 6px;
+        padding: 4px 10px;
+        font-size: 11.5px;
+        font-weight: 700;
+        align-self: flex-start;
+      }
+      .acelc-result-links-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 2px;
+      }
+      .acelc-result-file-link {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        background: #1e1e1e;
+        border: 1px solid #383838;
+        border-radius: 8px;
+        padding: 9px 12px;
+        color: #e4e4e7;
+        text-decoration: none;
+        font-size: 11.5px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        transition: all 0.15s ease;
+      }
+      .acelc-result-file-link:hover {
+        background: #2d2d2d;
+        border-color: #52525b;
+        color: #ffffff;
+      }
+      .acelc-result-action-pill {
+        font-size: 10px;
+        font-weight: 700;
+        color: #ffa116;
+        background: #373737;
+        padding: 3px 8px;
+        border-radius: 4px;
+        border: 1px solid #484848;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
       }
       .acelc-success-banner {
         background: #143521;
@@ -1395,27 +1567,46 @@
 
     const diffTag = document.createElement('span');
     diffTag.className = 'acelc-tag';
-    const diff = submission.difficulty || 'Medium';
-    diffTag.textContent = diff;
-    if (diff === 'Easy') diffTag.style.cssText = 'background:#dcfce7;color:#15803d;';
-    else if (diff === 'Hard') diffTag.style.cssText = 'background:#fee2e2;color:#b91c1c;';
-    else diffTag.style.cssText = 'background:#fef3c7;color:#b45309;';
+    const diff = (submission.difficulty || 'Medium').toLowerCase();
+    diffTag.textContent = submission.difficulty || 'Medium';
+    if (diff === 'easy') {
+      diffTag.className += ' acelc-diff-easy';
+    } else if (diff === 'hard') {
+      diffTag.className += ' acelc-diff-hard';
+    } else {
+      diffTag.className += ' acelc-diff-medium';
+    }
 
     badgeRow.appendChild(langTag);
     badgeRow.appendChild(statusTag);
     badgeRow.appendChild(diffTag);
 
+    function formatMetricWithBeats(value, percentile) {
+      if (!value) return null;
+      let valStr = String(value).trim();
+      if (percentile !== null && percentile !== undefined && String(percentile).trim().length > 0) {
+        let cleanPct = String(percentile).replace(/beats\s*/i, '').replace('%', '').trim();
+        const num = parseFloat(cleanPct);
+        if (!isNaN(num) && num > 0) {
+          if (!valStr.toLowerCase().includes('beats') && !valStr.includes('%')) {
+            return `${valStr} (Beats ${num.toFixed(1)}%)`;
+          }
+        }
+      }
+      return valStr;
+    }
+
     if (submission.runtime) {
       const runtimeTag = document.createElement('span');
       runtimeTag.className = 'acelc-tag';
-      runtimeTag.textContent = submission.runtime;
+      runtimeTag.textContent = formatMetricWithBeats(submission.runtime, submission.runtimePercentile);
       badgeRow.appendChild(runtimeTag);
     }
 
     if (submission.memory) {
       const memoryTag = document.createElement('span');
       memoryTag.className = 'acelc-tag';
-      memoryTag.textContent = submission.memory;
+      memoryTag.textContent = formatMetricWithBeats(submission.memory, submission.memoryPercentile);
       badgeRow.appendChild(memoryTag);
     }
 
@@ -1459,7 +1650,7 @@
     const toggleAllBtn = document.createElement('button');
     toggleAllBtn.className = 'acelc-toggle-all-btn';
     toggleAllBtn.type = 'button';
-    toggleAllBtn.textContent = 'Deselect All';
+    toggleAllBtn.textContent = 'Select All';
 
     foldersHeader.appendChild(foldersLabel);
     foldersHeader.appendChild(toggleAllBtn);
@@ -1533,7 +1724,7 @@
         cb.type = 'checkbox';
         cb.className = 'acelc-folder-checkbox';
         cb.value = f;
-        cb.checked = true;
+        cb.checked = false;
 
         const lbl = document.createElement('span');
         lbl.className = 'acelc-folder-label';
@@ -1557,8 +1748,8 @@
 
     modal.appendChild(foldersSection);
 
-    // Toggle All functionality
-    let allSelected = true;
+    // Toggle All functionality (unchecked by default)
+    let allSelected = false;
     toggleAllBtn.onclick = () => {
       const checkboxes = foldersList.querySelectorAll('.acelc-folder-checkbox');
       allSelected = !allSelected;
@@ -1572,9 +1763,17 @@
     actionsRow.className = 'acelc-actions-row';
 
     const confirmBtn = document.createElement('button');
-    confirmBtn.className = 'acelc-btn-confirm';
+    confirmBtn.className = 'acelc-btn-push';
     confirmBtn.type = 'button';
-    confirmBtn.textContent = 'Upload Solution';
+    confirmBtn.title = 'Push solution to GitHub';
+    confirmBtn.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2cbb5d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>
+        <path d="M12 13V7"></path>
+        <path d="m9 10 3-3 3 3"></path>
+      </svg>
+      <span>Push</span>
+    `;
 
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'acelc-btn-cancel';
@@ -1602,7 +1801,14 @@
       validationError.style.display = 'none';
       confirmBtn.disabled = true;
       cancelBtn.disabled = true;
-      confirmBtn.textContent = 'Confirming Selection...';
+      confirmBtn.innerHTML = `
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2cbb5d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>
+          <path d="M12 13V7"></path>
+          <path d="m9 10 3-3 3 3"></path>
+        </svg>
+        <span>Pushing...</span>
+      `;
 
       safeSendMessage(
         {
@@ -1615,12 +1821,26 @@
         (response) => {
           if (response && response.success) {
             // Phase 7: Trigger upload immediately after confirmation
-            confirmBtn.textContent = 'Uploading...';
+            confirmBtn.innerHTML = `
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2cbb5d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>
+                <path d="M12 13V7"></path>
+                <path d="m9 10 3-3 3 3"></path>
+              </svg>
+              <span>Pushing...</span>
+            `;
             triggerModalUpload(response.confirmedSubmission, modal, overlay, {});
           } else {
             confirmBtn.disabled = false;
             cancelBtn.disabled = false;
-            confirmBtn.textContent = 'Upload Solution';
+            confirmBtn.innerHTML = `
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2cbb5d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>
+                <path d="M12 13V7"></path>
+                <path d="m9 10 3-3 3 3"></path>
+              </svg>
+              <span>Push</span>
+            `;
             validationError.textContent = (response && response.error) || 'Failed to confirm destination selection.';
             validationError.style.display = 'block';
           }
@@ -1701,7 +1921,7 @@
     modal.appendChild(header);
 
     const intro = document.createElement('div');
-    intro.style.cssText = 'font-size:12px;color:#92400e;background:#fffbeb;border:1px solid #fef3c7;border-radius:6px;padding:8px;margin-bottom:4px;';
+    intro.style.cssText = 'font-size:12px;color:#ffa116;background:rgba(255,161,22,0.12);border:1px solid rgba(255,161,22,0.3);border-radius:6px;padding:8px;margin-bottom:6px;';
     intro.textContent = `${conflicting.length} file(s) already exist in GitHub. Choose what to do:`;
     modal.appendChild(intro);
 
@@ -1710,10 +1930,10 @@
 
     for (const item of conflicting) {
       const row = document.createElement('div');
-      row.style.cssText = 'display:flex;flex-direction:column;gap:4px;padding:6px;background:#f8fafc;border-radius:4px;margin-bottom:4px;';
+      row.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:8px;background:#262626;border:1px solid #383838;border-radius:8px;margin-bottom:6px;';
 
       const pathEl = document.createElement('div');
-      pathEl.style.cssText = 'font-size:11px;color:#334155;word-break:break-all;font-weight:600;';
+      pathEl.style.cssText = 'font-size:11.5px;color:#e4e4e7;word-break:break-all;font-weight:600;font-family:ui-monospace,monospace;';
       pathEl.textContent = item.filePath;
 
       const btnsRow = document.createElement('div');
@@ -1721,7 +1941,7 @@
 
       const overwriteBtn = document.createElement('button');
       overwriteBtn.className = 'acelc-btn-confirm';
-      overwriteBtn.style.cssText = 'flex:1;font-size:12px;padding:6px;background:#dc2626;';
+      overwriteBtn.style.cssText = 'flex:1;font-size:12px;padding:6px;background:#dc2626;color:#ffffff;';
       overwriteBtn.textContent = '✏️ Overwrite';
 
       const skipBtn = document.createElement('button');
@@ -1771,50 +1991,110 @@
     const hasSuccess = created.length + overwritten.length > 0;
     const hasFailure = failed.length > 0;
 
+    // Header
+    const header = document.createElement('div');
+    header.className = 'acelc-modal-header';
+
+    const brandRow = document.createElement('div');
+    brandRow.className = 'acelc-brand-row';
+
+    const brandBadge = document.createElement('span');
+    brandBadge.className = 'acelc-brand-badge';
+    brandBadge.textContent = 'AceLC';
+
+    const modalTitle = document.createElement('span');
+    modalTitle.className = 'acelc-modal-title';
+    modalTitle.textContent = hasSuccess ? 'Saved to GitHub! 🚀' : 'Upload Status';
+
+    brandRow.appendChild(brandBadge);
+    brandRow.appendChild(modalTitle);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'acelc-close-btn';
+    closeBtn.innerHTML = '&times;';
+    closeBtn.title = 'Close';
+    closeBtn.onclick = () => overlay.remove();
+
+    header.appendChild(brandRow);
+    header.appendChild(closeBtn);
+    modal.appendChild(header);
+
+    // Result Card
+    const resultCard = document.createElement('div');
+    resultCard.className = 'acelc-result-card';
+
     if (hasSuccess) {
-      const banner = document.createElement('div');
-      banner.className = 'acelc-success-banner';
-      banner.textContent = `✅ Upload successful! ${response.filename || 'File'} saved to GitHub.`;
-      modal.appendChild(banner);
+      const statusPill = document.createElement('div');
+      statusPill.className = 'acelc-result-status-pill';
+      statusPill.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2cbb5d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+        <span>Upload Successful</span>
+      `;
+      resultCard.appendChild(statusPill);
+
+      const fileNameLabel = document.createElement('div');
+      fileNameLabel.style.cssText = 'font-size: 13px; font-weight: 700; color: #ffffff;';
+      fileNameLabel.textContent = response.filename ? `Solution ${response.filename} saved to GitHub` : 'Solution saved to GitHub.';
+      resultCard.appendChild(fileNameLabel);
+
+      const linksList = document.createElement('div');
+      linksList.className = 'acelc-result-links-list';
 
       for (const r of [...created, ...overwritten]) {
         const link = document.createElement('a');
         link.href = r.url || '#';
         link.target = '_blank';
         link.rel = 'noopener noreferrer';
-        link.style.cssText = 'display:block;font-size:11px;color:#2563eb;margin-top:6px;word-break:break-all;text-decoration:none;';
-        link.textContent = `📄 View: ${r.filePath}`;
-        link.onmouseover = () => { link.style.textDecoration = 'underline'; };
-        link.onmouseout = () => { link.style.textDecoration = 'none'; };
-        modal.appendChild(link);
+        link.className = 'acelc-result-file-link';
+        link.innerHTML = `
+          <span style="display:flex;align-items:center;gap:7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ffa116" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+            <span style="overflow:hidden;text-overflow:ellipsis;">${r.filePath}</span>
+          </span>
+          <span class="acelc-result-action-pill">View ↗</span>
+        `;
+        linksList.appendChild(link);
       }
+
+      resultCard.appendChild(linksList);
     }
 
     for (const r of skipped) {
-      const note = document.createElement('div');
-      note.style.cssText = 'font-size:11px;color:#64748b;margin-top:4px;';
-      note.textContent = `⏭️ Skipped (already exists): ${r.filePath}`;
-      modal.appendChild(note);
+      const skippedNote = document.createElement('div');
+      skippedNote.style.cssText = 'font-size: 11px; color: #a1a1aa; background: #1e1e1e; border: 1px solid #383838; border-radius: 6px; padding: 6px 10px;';
+      skippedNote.textContent = `⏭️ Skipped (already exists): ${r.filePath}`;
+      resultCard.appendChild(skippedNote);
     }
 
     for (const r of failed) {
-      const errEl = document.createElement('div');
-      errEl.style.cssText = 'font-size:11px;color:#b91c1c;margin-top:4px;background:#fef2f2;border:1px solid #fecaca;border-radius:4px;padding:6px;';
-      errEl.textContent = `❌ ${r.filePath}: ${r.error || 'Upload failed.'}`;
-      modal.appendChild(errEl);
+      const failedNote = document.createElement('div');
+      failedNote.style.cssText = 'font-size: 11px; color: #f87171; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; padding: 6px 10px;';
+      failedNote.textContent = `❌ ${r.filePath}: ${r.error || 'Upload failed.'}`;
+      resultCard.appendChild(failedNote);
     }
 
-    // Auto-close after a moment if everything succeeded
+    modal.appendChild(resultCard);
+
+    // Done Button
+    const doneBtn = document.createElement('button');
+    doneBtn.className = 'acelc-btn-cancel';
+    doneBtn.textContent = 'Done';
+    doneBtn.style.cssText = 'width: 100%; margin-top: 4px; padding: 9px; font-weight: 700; font-size: 12px;';
+    doneBtn.onclick = () => overlay.remove();
+    modal.appendChild(doneBtn);
+
+    // Auto-dismiss after 6 seconds if completely successful
     if (hasSuccess && !hasFailure) {
-      setTimeout(() => overlay.remove(), 2500);
-    } else {
-      // Add manual close for failures
-      const closeBtn = document.createElement('button');
-      closeBtn.className = 'acelc-btn-cancel';
-      closeBtn.textContent = 'Close';
-      closeBtn.style.cssText = 'margin-top:10px;width:100%;';
-      closeBtn.onclick = () => overlay.remove();
-      modal.appendChild(closeBtn);
+      setTimeout(() => {
+        if (document.body.contains(overlay)) {
+          overlay.remove();
+        }
+      }, 6000);
     }
   }
 
