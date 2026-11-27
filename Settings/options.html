@@ -10,10 +10,12 @@
   <div class="container">
     <header class="header">
       <div class="brand">
-        <h1>AceLC Settings</h1>
-        <span class="badge">MVP</span>
+        <img src="../Popup/icon.png" width="28" height="28" class="brand-logo" alt="AceLC">
+        <div>
+          <h1>AceLC Settings</h1>
+          <p class="tagline">Configure GitHub connection, repository, destination folders, and solution uploads</p>
+        </div>
       </div>
-      <p class="tagline">Configure GitHub connection, repository, destination folders, and solution uploads</p>
     </header>
 
     <div id="optionsToast" class="toast hidden"></div>
@@ -57,7 +59,7 @@
           <label for="optionsRepoDropdown" class="label-text">Change Destination Repository</label>
           <div class="repo-select-row">
             <select id="optionsRepoDropdown" class="select-field">
-              <option value="">-- Connect GitHub to load repositories --</option>
+              <option value="">Connect GitHub to load repositories</option>
             </select>
             <button id="optionsSaveRepoBtn" class="btn btn-primary" type="button" disabled>
               Save Selection
@@ -95,7 +97,7 @@
             <label for="optionsExistingDirDropdown" class="label-text">Or Pick Existing Folder on GitHub</label>
             <div class="repo-select-row">
               <select id="optionsExistingDirDropdown" class="select-field">
-                <option value="">-- Select existing folder --</option>
+                <option value="">Select existing folder</option>
               </select>
               <button id="optionsAddExistingDirBtn" class="btn btn-secondary" type="button" disabled>
                 Add

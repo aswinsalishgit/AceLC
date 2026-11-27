@@ -24,11 +24,35 @@ document.addEventListener('DOMContentLoaded', () => {
   const openOptionsBtn = document.getElementById('openOptionsBtn');
 
   // DOM Elements - User Profile Display
+  const userAvatarLink = document.getElementById('userAvatarLink');
   const userAvatar = document.getElementById('userAvatar');
+  const userNameLink = document.getElementById('userNameLink');
   const userName = document.getElementById('userName');
   const userHandle = document.getElementById('userHandle');
   const authErrorMessage = document.getElementById('authErrorMessage');
   const feedbackToast = document.getElementById('feedbackToast');
+
+  const LINKEDIN_PROFILE_URL = 'https://www.linkedin.com/in/aswinsalish/';
+
+  function openProfileTab(e) {
+    if (e) e.preventDefault();
+    const targetUrl = (e && e.currentTarget && e.currentTarget.id === 'userNameLink')
+      ? LINKEDIN_PROFILE_URL
+      : ((e && e.currentTarget && e.currentTarget.href && e.currentTarget.href !== '#' && !e.currentTarget.href.endsWith('#'))
+        ? e.currentTarget.href
+        : (userHandle && userHandle.href));
+    if (targetUrl && targetUrl !== '#' && !targetUrl.endsWith('#')) {
+      if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create) {
+        chrome.tabs.create({ url: targetUrl });
+      } else {
+        window.open(targetUrl, '_blank', 'noopener,noreferrer');
+      }
+    }
+  }
+
+  if (userAvatarLink) userAvatarLink.addEventListener('click', openProfileTab);
+  if (userNameLink) userNameLink.addEventListener('click', openProfileTab);
+  if (userHandle) userHandle.addEventListener('click', openProfileTab);
 
   // DOM Elements - Repository Management (Phase 3)
   const repoActiveView = document.getElementById('repoActiveView');
@@ -178,9 +202,13 @@ document.addEventListener('DOMContentLoaded', () => {
    */
   function renderConnected(user) {
     if (!user) return;
+    const profileUrl = user.htmlUrl || `https://github.com/${user.login}`;
     userName.textContent = user.name || user.login;
     userHandle.textContent = `@${user.login}`;
-    userHandle.href = user.htmlUrl || `https://github.com/${user.login}`;
+    userHandle.href = profileUrl;
+
+    if (userAvatarLink) userAvatarLink.href = profileUrl;
+    if (userNameLink) userNameLink.href = LINKEDIN_PROFILE_URL;
 
     if (user.avatarUrl) {
       userAvatar.src = user.avatarUrl;
@@ -227,6 +255,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (repo && repo.fullName) {
       repoNameLink.textContent = repo.fullName;
       repoNameLink.href = repo.htmlUrl || `https://github.com/${repo.fullName}`;
+
+      const activeRepoTag = document.getElementById('activeRepoTag');
+      if (activeRepoTag) {
+        activeRepoTag.textContent = repo.name || repo.fullName;
+      }
 
       const isPrivate = Boolean(repo.isPrivate);
       repoVisibilityBadge.textContent = isPrivate ? 'Private' : 'Public';
@@ -278,7 +311,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function loadUserRepositories() {
-    repoDropdown.innerHTML = '<option value="">-- Loading repositories... --</option>';
+    repoDropdown.innerHTML = '<option value="">Loading repositories...</option>';
     confirmSelectRepoBtn.disabled = true;
 
     chrome.runtime.sendMessage({ action: AceConstants.MESSAGES.GET_REPOSITORIES }, (response) => {
@@ -292,11 +325,11 @@ document.addEventListener('DOMContentLoaded', () => {
       cachedRepositories = Array.isArray(response.repositories) ? response.repositories : [];
 
       if (cachedRepositories.length === 0) {
-        repoDropdown.innerHTML = '<option value="">-- No repositories found --</option>';
+        repoDropdown.innerHTML = '<option value="">No repositories found</option>';
         return;
       }
 
-      repoDropdown.innerHTML = '<option value="">-- Select a repository --</option>';
+      repoDropdown.innerHTML = '<option value="">Select a repository</option>';
       for (const repo of cachedRepositories) {
         const option = document.createElement('option');
         option.value = repo.fullName;
@@ -421,7 +454,7 @@ document.addEventListener('DOMContentLoaded', () => {
         },
         (response) => {
           submitCreateRepoBtn.disabled = false;
-          submitCreateRepoBtn.textContent = 'Create & Select';
+          submitCreateRepoBtn.textContent = 'Create Repository';
 
           if (response && response.success && response.repository) {
             showToast(`Repository '${response.repository.name}' created!`);
@@ -577,7 +610,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     chrome.runtime.sendMessage({ action: AceConstants.MESSAGES.GET_REPO_DIRECTORIES }, (response) => {
       if (response && response.success && Array.isArray(response.directories) && response.directories.length > 0) {
-        existingDirectoriesDropdown.innerHTML = '<option value="">-- Choose existing folder --</option>';
+        existingDirectoriesDropdown.innerHTML = '<option value="">Choose existing folder</option>';
 
         for (const dir of response.directories) {
           const opt = document.createElement('option');
@@ -698,6 +731,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (statEasySolved) statEasySolved.textContent = String(easy);
     if (statMediumSolved) statMediumSolved.textContent = String(medium);
     if (statHardSolved) statHardSolved.textContent = String(hard);
+
+    const taskSolvedCount = document.getElementById('taskSolvedCount');
+    if (taskSolvedCount) taskSolvedCount.textContent = String(total);
 
     if (statsGreetingText) {
       statsGreetingText.textContent = generateProgressGreeting(total);
@@ -1322,6 +1358,28 @@ document.addEventListener('DOMContentLoaded', () => {
         chrome.runtime.openOptionsPage();
       } else {
         window.open(chrome.runtime.getURL('Settings/options.html'));
+      }
+    });
+  }
+
+  const headerCloseBtn = document.getElementById('headerCloseBtn');
+  if (headerCloseBtn) {
+    headerCloseBtn.addEventListener('click', () => {
+      window.close();
+    });
+  }
+
+  const toggleRepoConfigBtn = document.getElementById('toggleRepoConfigBtn');
+  if (toggleRepoConfigBtn) {
+    toggleRepoConfigBtn.addEventListener('click', () => {
+      const drawer = document.querySelector('.repo-drawer');
+      if (drawer) {
+        drawer.classList.toggle('hidden');
+        const isExp = !drawer.classList.contains('hidden');
+        const spanText = toggleRepoConfigBtn.querySelector('span');
+        if (spanText) {
+          spanText.textContent = isExp ? 'Close' : 'Configure +';
+        }
       }
     });
   }

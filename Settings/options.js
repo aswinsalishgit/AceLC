@@ -67,7 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
         accountDetails.textContent = 'Connect your GitHub account through the AceLC popup using OAuth Device Flow.';
         optionsDisconnectBtn.classList.add('hidden');
         optionsRepoActiveRow.classList.add('hidden');
-        optionsRepoDropdown.innerHTML = '<option value="">-- Connect GitHub to load repositories --</option>';
+        optionsRepoDropdown.innerHTML = '<option value="">Connect GitHub to load repositories</option>';
         optionsSaveRepoBtn.disabled = true;
         if (optionsFoldersSection) optionsFoldersSection.classList.add('hidden');
       }
@@ -100,13 +100,13 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function loadRepoList() {
-    optionsRepoDropdown.innerHTML = '<option value="">-- Loading repositories... --</option>';
+    optionsRepoDropdown.innerHTML = '<option value="">Loading repositories...</option>';
     optionsSaveRepoBtn.disabled = true;
 
     chrome.runtime.sendMessage({ action: AceConstants.MESSAGES.GET_REPOSITORIES }, (response) => {
       if (response && response.success && Array.isArray(response.repositories)) {
         cachedRepos = response.repositories;
-        optionsRepoDropdown.innerHTML = '<option value="">-- Choose a repository --</option>';
+        optionsRepoDropdown.innerHTML = '<option value="">Choose a repository</option>';
 
         for (const repo of cachedRepos) {
           const opt = document.createElement('option');
@@ -217,7 +217,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     chrome.runtime.sendMessage({ action: AceConstants.MESSAGES.GET_REPO_DIRECTORIES }, (response) => {
       if (response && response.success && Array.isArray(response.directories) && response.directories.length > 0) {
-        optionsExistingDirDropdown.innerHTML = '<option value="">-- Choose existing folder --</option>';
+        optionsExistingDirDropdown.innerHTML = '<option value="">Choose existing folder</option>';
 
         for (const dir of response.directories) {
           const opt = document.createElement('option');

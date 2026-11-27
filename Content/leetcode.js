@@ -1091,41 +1091,34 @@
         left: 0;
         width: 100vw;
         height: 100vh;
-        background: rgba(15, 23, 42, 0.65);
-        backdrop-filter: blur(4px);
+        background: rgba(0, 0, 0, 0.75);
         z-index: 2147483647;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
         font-size: 13px;
-        color: #1e293b;
-        animation: acelc-fade-in 0.2s ease-out;
-      }
-      @keyframes acelc-fade-in {
-        from { opacity: 0; transform: scale(0.97); }
-        to { opacity: 1; transform: scale(1); }
+        color: #ffffff;
       }
       #acelc-dest-modal {
-        background: #ffffff;
+        background: #1a1a1a;
         border-radius: 12px;
-        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.08);
-        width: 440px;
+        width: 380px;
         max-width: 92vw;
         max-height: 90vh;
         overflow-y: auto;
         display: flex;
         flex-direction: column;
-        padding: 20px;
-        gap: 14px;
-        border: 1px solid #e2e8f0;
+        padding: 16px;
+        gap: 12px;
+        border: 1px solid #333333;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8);
       }
       .acelc-modal-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        border-bottom: 1px solid #f1f5f9;
-        padding-bottom: 12px;
+        padding-bottom: 6px;
       }
       .acelc-brand-row {
         display: flex;
@@ -1133,45 +1126,49 @@
         gap: 8px;
       }
       .acelc-brand-badge {
-        background: #e0e7ff;
-        color: #4338ca;
-        font-size: 11px;
-        font-weight: 700;
-        padding: 2px 7px;
+        background: #373737;
+        color: #ffa116;
+        border: 1px solid #484848;
+        font-size: 9px;
+        font-weight: 800;
+        padding: 2px 6px;
         border-radius: 4px;
+        text-transform: uppercase;
       }
       .acelc-modal-title {
-        font-size: 16px;
-        font-weight: 700;
-        color: #0f172a;
+        font-size: 14px;
+        font-weight: 800;
+        color: #ffffff;
       }
       .acelc-close-btn {
         background: transparent;
         border: none;
-        font-size: 20px;
-        color: #64748b;
+        font-size: 16px;
+        color: #a1a1aa;
         cursor: pointer;
-        padding: 4px 8px;
-        border-radius: 6px;
-        line-height: 1;
+        padding: 4px;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
       }
       .acelc-close-btn:hover {
-        background: #f1f5f9;
-        color: #0f172a;
+        color: #ffffff;
+        background: #2a2a2a;
       }
       .acelc-summary-card {
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
+        background: #262626;
+        border: 1px solid #383838;
+        border-radius: 10px;
         padding: 12px;
         display: flex;
         flex-direction: column;
         gap: 8px;
       }
       .acelc-problem-name {
-        font-size: 15px;
-        font-weight: 600;
-        color: #0f172a;
+        font-size: 13.5px;
+        font-weight: 800;
+        color: #ffffff;
       }
       .acelc-badge-row {
         display: flex;
@@ -1180,185 +1177,144 @@
         flex-wrap: wrap;
       }
       .acelc-tag {
-        font-size: 11px;
+        font-size: 10.5px;
         font-weight: 600;
-        padding: 2px 8px;
+        padding: 2px 7px;
         border-radius: 4px;
-        background: #e2e8f0;
-        color: #334155;
+        background: #373737;
+        color: #d4d4d8;
+        border: 1px solid #484848;
       }
       .acelc-tag-lang {
-        background: #dbeafe;
-        color: #1d4ed8;
+        background: #373737;
+        color: #ffa116;
       }
       .acelc-tag-success {
-        background: #dcfce7;
-        color: #15803d;
+        background: #143521;
+        color: #34d399;
       }
       .acelc-section-label {
-        font-size: 12px;
-        font-weight: 600;
-        color: #475569;
+        font-size: 10px;
+        font-weight: 700;
+        color: #a1a1aa;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
         margin-bottom: 4px;
         display: block;
       }
       .acelc-repo-box {
-        background: #ffffff;
-        border: 1px solid #cbd5e1;
-        border-radius: 6px;
+        background: #262626;
+        border: 1px solid #383838;
+        border-radius: 8px;
         padding: 8px 10px;
         display: flex;
         align-items: center;
         justify-content: space-between;
-        font-size: 12px;
+        font-size: 11.5px;
       }
       .acelc-repo-name {
-        font-weight: 600;
-        color: #0f172a;
+        font-weight: 700;
+        color: #ffffff;
       }
       .acelc-folders-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
+        margin-bottom: 4px;
       }
       .acelc-toggle-all-btn {
         background: transparent;
         border: none;
-        color: #2563eb;
-        font-size: 11px;
+        color: #ffa116;
+        font-size: 10.5px;
         font-weight: 600;
         cursor: pointer;
-        padding: 0;
-      }
-      .acelc-toggle-all-btn:hover {
-        text-decoration: underline;
       }
       .acelc-folders-list {
         display: flex;
         flex-direction: column;
-        gap: 6px;
-        max-height: 180px;
+        gap: 5px;
+        max-height: 140px;
         overflow-y: auto;
-        border: 1px solid #e2e8f0;
-        border-radius: 6px;
+        border: 1px solid #383838;
+        border-radius: 8px;
         padding: 8px;
-        background: #ffffff;
+        background: #262626;
       }
       .acelc-folder-item {
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 6px 8px;
-        border-radius: 4px;
+        padding: 5px 8px;
+        border-radius: 6px;
         cursor: pointer;
-        transition: background-color 0.1s ease;
       }
       .acelc-folder-item:hover {
-        background: #f1f5f9;
+        background: #303030;
       }
       .acelc-folder-checkbox {
-        accent-color: #2da44e;
+        accent-color: #ffa116;
         cursor: pointer;
-        width: 15px;
-        height: 15px;
       }
       .acelc-folder-label {
-        font-size: 12px;
+        font-size: 11.5px;
         font-weight: 500;
-        color: #1e293b;
-        cursor: pointer;
-        flex: 1;
-      }
-      .acelc-empty-folders-box {
-        padding: 10px;
-        background: #fffbeb;
-        border: 1px solid #fef3c7;
-        border-radius: 6px;
-        font-size: 12px;
-        color: #92400e;
-      }
-      .acelc-quick-add-row {
-        display: flex;
-        gap: 6px;
-        margin-top: 6px;
-      }
-      .acelc-quick-add-input {
-        flex: 1;
-        padding: 5px 8px;
-        font-size: 12px;
-        border: 1px solid #cbd5e1;
-        border-radius: 4px;
-        outline: none;
-      }
-      .acelc-quick-add-btn {
-        background: #0f172a;
         color: #ffffff;
-        border: none;
-        border-radius: 4px;
-        padding: 5px 10px;
-        font-size: 11px;
-        font-weight: 600;
         cursor: pointer;
-      }
-      .acelc-validation-error {
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #b91c1c;
-        border-radius: 6px;
-        padding: 8px 10px;
-        font-size: 12px;
-        font-weight: 500;
+        flex: 1;
       }
       .acelc-actions-row {
         display: flex;
-        gap: 10px;
+        gap: 8px;
         margin-top: 4px;
       }
       .acelc-btn-confirm {
         flex: 1;
-        background: #2da44e;
-        color: #ffffff;
+        background: #ffa116;
+        color: #1a1a1a;
         border: none;
-        border-radius: 6px;
-        padding: 9px 14px;
-        font-size: 13px;
-        font-weight: 600;
+        border-radius: 8px;
+        padding: 8px 16px;
+        font-size: 12px;
+        font-weight: 800;
         cursor: pointer;
         display: flex;
         align-items: center;
         justify-content: center;
         transition: background-color 0.15s ease;
       }
-      .acelc-btn-confirm:hover {
-        background: #2c974b;
+      .acelc-btn-confirm:hover:not(:disabled) {
+        background: #ffb33e;
       }
       .acelc-btn-confirm:disabled {
-        background: #94a3b8;
+        background: #373737;
+        color: #71717a;
+        border: 1px solid #484848;
         cursor: not-allowed;
       }
       .acelc-btn-cancel {
-        background: #f1f5f9;
-        color: #334155;
-        border: 1px solid #cbd5e1;
-        border-radius: 6px;
-        padding: 9px 14px;
-        font-size: 13px;
+        background: #373737;
+        color: #ffffff;
+        border: 1px solid #484848;
+        border-radius: 8px;
+        padding: 8px 14px;
+        font-size: 11.5px;
         font-weight: 600;
         cursor: pointer;
-        transition: background-color 0.15s ease;
+        transition: all 0.15s ease;
       }
       .acelc-btn-cancel:hover {
-        background: #e2e8f0;
+        background: #444444;
       }
       .acelc-success-banner {
-        background: #f0fdf4;
-        border: 1px solid #bbf7d0;
-        color: #166534;
-        border-radius: 6px;
+        background: #143521;
+        border: 1px solid #166534;
+        color: #a7f3d0;
+        border-radius: 8px;
         padding: 10px;
         text-align: center;
-        font-weight: 600;
-        font-size: 13px;
+        font-weight: 700;
+        font-size: 12px;
       }
     `;
     document.head.appendChild(styleEl);
