@@ -225,10 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
   /**
    * Render Waiting for Authorization State
    */
-  function renderWaitingAuth(userCode, verificationUri) {
-    activeUserCode = userCode || '';
-    activeVerificationUri = verificationUri || AceConstants.GITHUB.VERIFICATION_URL;
-    userCodeDisplay.textContent = activeUserCode || '----';
+  function renderWaitingAuth() {
     setViewState(AceConstants.AUTH_STATUS.WAITING_FOR_AUTH);
   }
 
@@ -1226,7 +1223,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (response.status === AceConstants.AUTH_STATUS.CONNECTED && response.user) {
         renderConnected(response.user);
       } else if (response.status === AceConstants.AUTH_STATUS.WAITING_FOR_AUTH && response.authState) {
-        renderWaitingAuth(response.authState.userCode, response.authState.verificationUri);
+        renderWaitingAuth();
       } else if (response.status === AceConstants.AUTH_STATUS.FAILED && response.authState) {
         renderAuthFailed(response.authState.error);
       } else {
@@ -1247,6 +1244,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       connectBtn.disabled = true;
       connectBtn.textContent = 'Connecting...';
+      setViewState(AceConstants.AUTH_STATUS.WAITING_FOR_AUTH);
 
       chrome.runtime.sendMessage(
         {
@@ -1255,75 +1253,25 @@ document.addEventListener('DOMContentLoaded', () => {
         },
         (response) => {
           connectBtn.disabled = false;
-          connectBtn.innerHTML = `
-            <svg class="btn-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
-              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-            </svg>
-            Connect GitHub
-          `;
+          connectBtn.textContent = 'Connect +';
 
           if (chrome.runtime.lastError || !response || !response.success) {
-            const errorMsg = (response && response.error) || 'Failed to start authorization.';
+            if (response && response.cancelled) {
+              setViewState(AceConstants.AUTH_STATUS.NOT_CONNECTED);
+              showToast('Authorization cancelled.');
+              return;
+            }
+            const errorMsg = (response && response.error) || 'Failed to complete authorization.';
             renderAuthFailed(errorMsg);
             return;
           }
 
-          renderWaitingAuth(response.userCode, response.verificationUri);
+          if (response.user) {
+            renderConnected(response.user);
+            showToast('Successfully authenticated!');
+          }
         }
       );
-    });
-  }
-
-  if (copyCodeBtn) {
-    copyCodeBtn.addEventListener('click', async () => {
-      if (!activeUserCode) return;
-      try {
-        await navigator.clipboard.writeText(activeUserCode);
-        showToast('Code copied to clipboard!');
-        copyCodeBtn.textContent = 'Copied!';
-        setTimeout(() => {
-          copyCodeBtn.textContent = 'Copy Code';
-        }, 2000);
-      } catch (err) {
-        showToast('Failed to copy code automatically.', true);
-      }
-    });
-  }
-
-  if (openVerifyBtn) {
-    openVerifyBtn.addEventListener('click', () => {
-      const url = activeVerificationUri || AceConstants.GITHUB.VERIFICATION_URL;
-      chrome.tabs.create({ url: url });
-    });
-  }
-
-  if (checkAuthBtn) {
-    checkAuthBtn.addEventListener('click', () => {
-      checkAuthBtn.disabled = true;
-      checkAuthBtn.textContent = 'Verifying approval...';
-
-      chrome.runtime.sendMessage({ action: AceConstants.MESSAGES.CHECK_AUTH_NOW }, (response) => {
-        checkAuthBtn.disabled = false;
-        checkAuthBtn.textContent = "I've Approved on GitHub";
-
-        if (chrome.runtime.lastError || !response) {
-          showToast('Failed to connect with background service worker.', true);
-          return;
-        }
-
-        if (response.success && response.user) {
-          showToast('Successfully authenticated!');
-          renderConnected(response.user);
-          return;
-        }
-
-        if (response.pending) {
-          showToast(response.message || 'Authorization still pending on GitHub.', false);
-        } else if (response.error) {
-          showToast(response.error, true);
-          renderAuthFailed(response.error);
-        }
-      });
     });
   }
 
@@ -1331,6 +1279,7 @@ document.addEventListener('DOMContentLoaded', () => {
     cancelAuthBtn.addEventListener('click', () => {
       chrome.runtime.sendMessage({ action: AceConstants.MESSAGES.CANCEL_AUTH }, () => {
         setViewState(AceConstants.AUTH_STATUS.NOT_CONNECTED);
+        showToast('Authorization cancelled.');
       });
     });
   }

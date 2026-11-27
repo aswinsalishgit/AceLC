@@ -100,6 +100,33 @@ async function getEffectiveClientId(providedId) {
 }
 
 /**
+ * Retrieve GitHub Client Secret from storage or fallback to default
+ * @returns {Promise<string>}
+ */
+async function getEffectiveClientSecret(providedSecret) {
+  if (providedSecret && typeof providedSecret === 'string' && providedSecret.trim().length > 0) {
+    return providedSecret.trim();
+  }
+
+  const stored = await chrome.storage.local.get(AceConstants.STORAGE_KEYS.CLIENT_SECRET);
+  if (stored[AceConstants.STORAGE_KEYS.CLIENT_SECRET]) {
+    return stored[AceConstants.STORAGE_KEYS.CLIENT_SECRET].trim();
+  }
+
+  return (AceConstants.GITHUB.DEFAULT_CLIENT_SECRET || '').trim();
+}
+
+/**
+ * Generate a cryptographically random state parameter for OAuth CSRF protection
+ * @returns {string}
+ */
+function generateOAuthState() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
  * Validate repository name according to GitHub naming conventions
  * @param {string} name 
  * @returns {string|null} Error string if invalid, null if valid
@@ -125,6 +152,233 @@ function validateRepoName(name) {
     return 'Repository name cannot end with .git.';
   }
   return null;
+}
+
+/**
+ * Start GitHub OAuth Web Flow with browser-based redirect
+ */
+async function startOAuthWebFlow(providedClientId) {
+  const clientId = await getEffectiveClientId(providedClientId);
+  const clientSecret = await getEffectiveClientSecret();
+
+  if (!clientId) {
+    return {
+      success: false,
+      error: 'GitHub Client ID is required for authentication.'
+    };
+  }
+
+  const state = generateOAuthState();
+  const redirectUri = (typeof chrome !== 'undefined' && chrome.identity && chrome.identity.getRedirectURL)
+    ? chrome.identity.getRedirectURL()
+    : 'https://github.com/';
+
+  console.log('[AceLC Background] Initiating browser OAuth flow. Redirect URI:', redirectUri);
+
+  const authUrl = new URL(AceConstants.GITHUB.AUTHORIZE_URL);
+  authUrl.searchParams.set('client_id', clientId);
+  authUrl.searchParams.set('redirect_uri', redirectUri);
+  authUrl.searchParams.set('scope', AceConstants.GITHUB.SCOPES);
+  authUrl.searchParams.set('state', state);
+
+  await chrome.storage.local.set({
+    [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
+      status: AceConstants.AUTH_STATUS.WAITING_FOR_AUTH,
+      method: 'WEB_OAUTH',
+      state: state,
+      clientId: clientId,
+      redirectUri: redirectUri,
+      startedAt: Date.now()
+    }
+  });
+
+  // Primary: chrome.identity.launchWebAuthFlow
+  if (typeof chrome !== 'undefined' && chrome.identity && chrome.identity.launchWebAuthFlow) {
+    return new Promise((resolve) => {
+      chrome.identity.launchWebAuthFlow(
+        {
+          url: authUrl.toString(),
+          interactive: true
+        },
+        async (responseUrl) => {
+          if (chrome.runtime.lastError || !responseUrl) {
+            const errorMsg = (chrome.runtime.lastError && chrome.runtime.lastError.message) || 'Authorization window closed or cancelled.';
+            console.warn('[AceLC Background] launchWebAuthFlow response:', errorMsg);
+
+            if (errorMsg.includes('User cancelled') || errorMsg.includes('closed') || errorMsg.includes('user did not approve')) {
+              await chrome.storage.local.set({
+                [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
+                  status: AceConstants.AUTH_STATUS.NOT_CONNECTED
+                }
+              });
+              resolve({ success: false, cancelled: true, error: 'Authorization was cancelled.' });
+              return;
+            }
+
+            // Fallback to browser tab if redirect_uri is not configured for chromiumapp.org
+            console.log('[AceLC Background] Falling back to browser tab authorization...');
+            const tabResult = await startTabOAuthFlow(authUrl.toString(), state, clientId, clientSecret, redirectUri);
+            resolve(tabResult);
+            return;
+          }
+
+          try {
+            const parsedUrl = new URL(responseUrl);
+            const returnedState = parsedUrl.searchParams.get('state');
+            const code = parsedUrl.searchParams.get('code');
+            const error = parsedUrl.searchParams.get('error_description') || parsedUrl.searchParams.get('error');
+
+            if (error) {
+              await chrome.storage.local.set({
+                [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
+                  status: AceConstants.AUTH_STATUS.FAILED,
+                  error: error
+                }
+              });
+              resolve({ success: false, error: error });
+              return;
+            }
+
+            if (returnedState && returnedState !== state) {
+              const csrfErr = 'State parameter mismatch. Authorization aborted for security.';
+              await chrome.storage.local.set({
+                [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
+                  status: AceConstants.AUTH_STATUS.FAILED,
+                  error: csrfErr
+                }
+              });
+              resolve({ success: false, error: csrfErr });
+              return;
+            }
+
+            if (!code) {
+              const noCodeErr = 'No authorization code was returned from GitHub.';
+              await chrome.storage.local.set({
+                [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
+                  status: AceConstants.AUTH_STATUS.FAILED,
+                  error: noCodeErr
+                }
+              });
+              resolve({ success: false, error: noCodeErr });
+              return;
+            }
+
+            const tokenResult = await exchangeOAuthCodeForToken(code, clientId, clientSecret, redirectUri);
+            resolve(tokenResult);
+          } catch (err) {
+            resolve({ success: false, error: err.message });
+          }
+        }
+      );
+    });
+  } else {
+    return await startTabOAuthFlow(authUrl.toString(), state, clientId, clientSecret, redirectUri);
+  }
+}
+
+/**
+ * Exchange GitHub authorization code for OAuth access token
+ */
+async function exchangeOAuthCodeForToken(code, clientId, clientSecret, redirectUri) {
+  try {
+    const payload = {
+      client_id: clientId,
+      code: code
+    };
+    if (clientSecret) {
+      payload.client_secret = clientSecret;
+    }
+    if (redirectUri) {
+      payload.redirect_uri = redirectUri;
+    }
+
+    const response = await fetch(AceConstants.GITHUB.TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await response.json();
+
+    if (data.error) {
+      let errorMsg = data.error_description || data.error;
+      if (data.error === 'incorrect_client_credentials' && !clientSecret) {
+        errorMsg = 'OAuth Client Secret required. Please enter your OAuth App Client Secret in Settings.';
+      }
+      await chrome.storage.local.set({
+        [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
+          status: AceConstants.AUTH_STATUS.FAILED,
+          error: errorMsg
+        }
+      });
+      return { success: false, error: errorMsg };
+    }
+
+    if (data.access_token) {
+      return await fetchAndSaveUserProfile(data.access_token);
+    }
+
+    return { success: false, error: 'Unexpected response from GitHub token endpoint.' };
+  } catch (err) {
+    const errorMsg = err.message || 'Network error exchanging OAuth code.';
+    await chrome.storage.local.set({
+      [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
+        status: AceConstants.AUTH_STATUS.FAILED,
+        error: errorMsg
+      }
+    });
+    return { success: false, error: errorMsg };
+  }
+}
+
+/**
+ * Browser tab-based OAuth fallback
+ */
+function startTabOAuthFlow(authUrlStr, expectedState, clientId, clientSecret, redirectUri) {
+  return new Promise((resolve) => {
+    chrome.tabs.create({ url: authUrlStr }, (tab) => {
+      const tabId = tab.id;
+
+      const listener = async (updatedTabId, changeInfo) => {
+        if (updatedTabId !== tabId || !changeInfo.url) return;
+
+        try {
+          const tabUrl = new URL(changeInfo.url);
+          if (tabUrl.searchParams.has('code')) {
+            const code = tabUrl.searchParams.get('code');
+            const state = tabUrl.searchParams.get('state');
+
+            if (expectedState && state && state !== expectedState) {
+              chrome.tabs.onUpdated.removeListener(listener);
+              try { chrome.tabs.remove(tabId); } catch (_) {}
+              resolve({ success: false, error: 'State mismatch in OAuth callback.' });
+              return;
+            }
+
+            chrome.tabs.onUpdated.removeListener(listener);
+            try { chrome.tabs.remove(tabId); } catch (_) {}
+
+            const result = await exchangeOAuthCodeForToken(code, clientId, clientSecret, redirectUri);
+            resolve(result);
+          } else if (tabUrl.searchParams.has('error')) {
+            const error = tabUrl.searchParams.get('error_description') || tabUrl.searchParams.get('error');
+            chrome.tabs.onUpdated.removeListener(listener);
+            try { chrome.tabs.remove(tabId); } catch (_) {}
+            resolve({ success: false, error: error });
+          }
+        } catch (_) {}
+      };
+
+      chrome.tabs.onUpdated.addListener(listener);
+
+      setTimeout(() => {
+        chrome.tabs.onUpdated.removeListener(listener);
+      }, 300000);
+    });
+  });
 }
 
 /**
@@ -173,6 +427,233 @@ function validateFolderPath(path) {
   }
 
   return null;
+}
+
+/**
+ * Start GitHub OAuth Web Flow with browser-based redirect
+ */
+async function startOAuthWebFlow(providedClientId) {
+  const clientId = await getEffectiveClientId(providedClientId);
+  const clientSecret = await getEffectiveClientSecret();
+
+  if (!clientId) {
+    return {
+      success: false,
+      error: 'GitHub Client ID is required for authentication.'
+    };
+  }
+
+  const state = generateOAuthState();
+  const redirectUri = (typeof chrome !== 'undefined' && chrome.identity && chrome.identity.getRedirectURL)
+    ? chrome.identity.getRedirectURL()
+    : 'https://github.com/';
+
+  console.log('[AceLC Background] Initiating browser OAuth flow. Redirect URI:', redirectUri);
+
+  const authUrl = new URL(AceConstants.GITHUB.AUTHORIZE_URL);
+  authUrl.searchParams.set('client_id', clientId);
+  authUrl.searchParams.set('redirect_uri', redirectUri);
+  authUrl.searchParams.set('scope', AceConstants.GITHUB.SCOPES);
+  authUrl.searchParams.set('state', state);
+
+  await chrome.storage.local.set({
+    [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
+      status: AceConstants.AUTH_STATUS.WAITING_FOR_AUTH,
+      method: 'WEB_OAUTH',
+      state: state,
+      clientId: clientId,
+      redirectUri: redirectUri,
+      startedAt: Date.now()
+    }
+  });
+
+  // Primary: chrome.identity.launchWebAuthFlow
+  if (typeof chrome !== 'undefined' && chrome.identity && chrome.identity.launchWebAuthFlow) {
+    return new Promise((resolve) => {
+      chrome.identity.launchWebAuthFlow(
+        {
+          url: authUrl.toString(),
+          interactive: true
+        },
+        async (responseUrl) => {
+          if (chrome.runtime.lastError || !responseUrl) {
+            const errorMsg = (chrome.runtime.lastError && chrome.runtime.lastError.message) || 'Authorization window closed or cancelled.';
+            console.warn('[AceLC Background] launchWebAuthFlow response:', errorMsg);
+
+            if (errorMsg.includes('User cancelled') || errorMsg.includes('closed') || errorMsg.includes('user did not approve')) {
+              await chrome.storage.local.set({
+                [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
+                  status: AceConstants.AUTH_STATUS.NOT_CONNECTED
+                }
+              });
+              resolve({ success: false, cancelled: true, error: 'Authorization was cancelled.' });
+              return;
+            }
+
+            // Fallback to browser tab if redirect_uri is not configured for chromiumapp.org
+            console.log('[AceLC Background] Falling back to browser tab authorization...');
+            const tabResult = await startTabOAuthFlow(authUrl.toString(), state, clientId, clientSecret, redirectUri);
+            resolve(tabResult);
+            return;
+          }
+
+          try {
+            const parsedUrl = new URL(responseUrl);
+            const returnedState = parsedUrl.searchParams.get('state');
+            const code = parsedUrl.searchParams.get('code');
+            const error = parsedUrl.searchParams.get('error_description') || parsedUrl.searchParams.get('error');
+
+            if (error) {
+              await chrome.storage.local.set({
+                [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
+                  status: AceConstants.AUTH_STATUS.FAILED,
+                  error: error
+                }
+              });
+              resolve({ success: false, error: error });
+              return;
+            }
+
+            if (returnedState && returnedState !== state) {
+              const csrfErr = 'State parameter mismatch. Authorization aborted for security.';
+              await chrome.storage.local.set({
+                [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
+                  status: AceConstants.AUTH_STATUS.FAILED,
+                  error: csrfErr
+                }
+              });
+              resolve({ success: false, error: csrfErr });
+              return;
+            }
+
+            if (!code) {
+              const noCodeErr = 'No authorization code was returned from GitHub.';
+              await chrome.storage.local.set({
+                [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
+                  status: AceConstants.AUTH_STATUS.FAILED,
+                  error: noCodeErr
+                }
+              });
+              resolve({ success: false, error: noCodeErr });
+              return;
+            }
+
+            const tokenResult = await exchangeOAuthCodeForToken(code, clientId, clientSecret, redirectUri);
+            resolve(tokenResult);
+          } catch (err) {
+            resolve({ success: false, error: err.message });
+          }
+        }
+      );
+    });
+  } else {
+    return await startTabOAuthFlow(authUrl.toString(), state, clientId, clientSecret, redirectUri);
+  }
+}
+
+/**
+ * Exchange GitHub authorization code for OAuth access token
+ */
+async function exchangeOAuthCodeForToken(code, clientId, clientSecret, redirectUri) {
+  try {
+    const payload = {
+      client_id: clientId,
+      code: code
+    };
+    if (clientSecret) {
+      payload.client_secret = clientSecret;
+    }
+    if (redirectUri) {
+      payload.redirect_uri = redirectUri;
+    }
+
+    const response = await fetch(AceConstants.GITHUB.TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await response.json();
+
+    if (data.error) {
+      let errorMsg = data.error_description || data.error;
+      if (data.error === 'incorrect_client_credentials' && !clientSecret) {
+        errorMsg = 'OAuth Client Secret required. Please enter your OAuth App Client Secret in Settings.';
+      }
+      await chrome.storage.local.set({
+        [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
+          status: AceConstants.AUTH_STATUS.FAILED,
+          error: errorMsg
+        }
+      });
+      return { success: false, error: errorMsg };
+    }
+
+    if (data.access_token) {
+      return await fetchAndSaveUserProfile(data.access_token);
+    }
+
+    return { success: false, error: 'Unexpected response from GitHub token endpoint.' };
+  } catch (err) {
+    const errorMsg = err.message || 'Network error exchanging OAuth code.';
+    await chrome.storage.local.set({
+      [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
+        status: AceConstants.AUTH_STATUS.FAILED,
+        error: errorMsg
+      }
+    });
+    return { success: false, error: errorMsg };
+  }
+}
+
+/**
+ * Browser tab-based OAuth fallback
+ */
+function startTabOAuthFlow(authUrlStr, expectedState, clientId, clientSecret, redirectUri) {
+  return new Promise((resolve) => {
+    chrome.tabs.create({ url: authUrlStr }, (tab) => {
+      const tabId = tab.id;
+
+      const listener = async (updatedTabId, changeInfo) => {
+        if (updatedTabId !== tabId || !changeInfo.url) return;
+
+        try {
+          const tabUrl = new URL(changeInfo.url);
+          if (tabUrl.searchParams.has('code')) {
+            const code = tabUrl.searchParams.get('code');
+            const state = tabUrl.searchParams.get('state');
+
+            if (expectedState && state && state !== expectedState) {
+              chrome.tabs.onUpdated.removeListener(listener);
+              try { chrome.tabs.remove(tabId); } catch (_) {}
+              resolve({ success: false, error: 'State mismatch in OAuth callback.' });
+              return;
+            }
+
+            chrome.tabs.onUpdated.removeListener(listener);
+            try { chrome.tabs.remove(tabId); } catch (_) {}
+
+            const result = await exchangeOAuthCodeForToken(code, clientId, clientSecret, redirectUri);
+            resolve(result);
+          } else if (tabUrl.searchParams.has('error')) {
+            const error = tabUrl.searchParams.get('error_description') || tabUrl.searchParams.get('error');
+            chrome.tabs.onUpdated.removeListener(listener);
+            try { chrome.tabs.remove(tabId); } catch (_) {}
+            resolve({ success: false, error: error });
+          }
+        } catch (_) {}
+      };
+
+      chrome.tabs.onUpdated.addListener(listener);
+
+      setTimeout(() => {
+        chrome.tabs.onUpdated.removeListener(listener);
+      }, 300000);
+    });
+  });
 }
 
 /**
@@ -2109,7 +2590,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // Authentication actions
   if (message.action === AceConstants.MESSAGES.START_AUTH) {
-    startDeviceFlow(message.clientId).then(sendResponse);
+    startOAuthWebFlow(message.clientId).then(sendResponse);
     return true;
   }
 

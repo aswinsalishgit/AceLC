@@ -792,6 +792,22 @@ button:active:not(:disabled) {
   width: 100%;
 }
 
+.auth-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2.5px solid rgba(255, 161, 22, 0.2);
+  border-top-color: var(--brand-highlight);
+  border-radius: 50%;
+  animation: authSpin 0.75s linear infinite;
+  margin: 4px auto;
+}
+
+@keyframes authSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Auth States */
 .auth-content {
   display: flex;

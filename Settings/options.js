@@ -10,6 +10,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const accountDetails = document.getElementById('accountDetails');
   const optionsDisconnectBtn = document.getElementById('optionsDisconnectBtn');
   const optionsClientIdInput = document.getElementById('optionsClientIdInput');
+  const optionsClientSecretInput = document.getElementById('optionsClientSecretInput');
+  const optionsCallbackUrlInput = document.getElementById('optionsCallbackUrlInput');
+  const copyCallbackUrlBtn = document.getElementById('copyCallbackUrlBtn');
   const saveClientIdBtn = document.getElementById('saveClientIdBtn');
   const optionsToast = document.getElementById('optionsToast');
 
@@ -44,6 +47,25 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function loadSettings() {
+    if (optionsCallbackUrlInput) {
+      const redirectUri = (typeof chrome !== 'undefined' && chrome.identity && chrome.identity.getRedirectURL)
+        ? chrome.identity.getRedirectURL()
+        : 'https://github.com/';
+      optionsCallbackUrlInput.value = redirectUri;
+    }
+
+    chrome.storage.local.get([
+      AceConstants.STORAGE_KEYS.CLIENT_ID,
+      AceConstants.STORAGE_KEYS.CLIENT_SECRET
+    ], (stored) => {
+      if (optionsClientIdInput) {
+        optionsClientIdInput.value = stored[AceConstants.STORAGE_KEYS.CLIENT_ID] || AceConstants.GITHUB.DEFAULT_CLIENT_ID || '';
+      }
+      if (optionsClientSecretInput && stored[AceConstants.STORAGE_KEYS.CLIENT_SECRET]) {
+        optionsClientSecretInput.value = stored[AceConstants.STORAGE_KEYS.CLIENT_SECRET];
+      }
+    });
+
     chrome.runtime.sendMessage({ action: AceConstants.MESSAGES.GET_AUTH_STATUS }, (response) => {
       if (chrome.runtime.lastError || !response || !response.success) {
         return;
@@ -64,7 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         accountDot.className = 'status-dot dot-neutral';
         accountStatusText.textContent = 'Not Connected';
-        accountDetails.textContent = 'Connect your GitHub account through the AceLC popup using OAuth Device Flow.';
+        accountDetails.textContent = 'Connect your GitHub account through the AceLC popup using browser-based OAuth redirect.';
         optionsDisconnectBtn.classList.add('hidden');
         optionsRepoActiveRow.classList.add('hidden');
         optionsRepoDropdown.innerHTML = '<option value="">Connect GitHub to load repositories</option>';
@@ -286,13 +308,31 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  if (copyCallbackUrlBtn && optionsCallbackUrlInput) {
+    copyCallbackUrlBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(optionsCallbackUrlInput.value);
+        showToast('Callback URL copied to clipboard!');
+        copyCallbackUrlBtn.textContent = 'Copied!';
+        setTimeout(() => {
+          copyCallbackUrlBtn.textContent = 'Copy';
+        }, 2000);
+      } catch (err) {
+        showToast('Failed to copy to clipboard.');
+      }
+    });
+  }
+
   if (saveClientIdBtn && optionsClientIdInput) {
     saveClientIdBtn.addEventListener('click', async () => {
       const clientId = optionsClientIdInput.value.trim();
+      const clientSecret = optionsClientSecretInput ? optionsClientSecretInput.value.trim() : '';
+
       await chrome.storage.local.set({
-        [AceConstants.STORAGE_KEYS.CLIENT_ID]: clientId
+        [AceConstants.STORAGE_KEYS.CLIENT_ID]: clientId,
+        [AceConstants.STORAGE_KEYS.CLIENT_SECRET]: clientSecret
       });
-      showToast('OAuth Client ID saved successfully.');
+      showToast('OAuth settings saved successfully.');
     });
   }
 

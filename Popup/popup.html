@@ -62,16 +62,10 @@
       <!-- STATE: WAITING FOR AUTHORIZATION -->
       <section id="stateWaitingAuth" class="swiss-card hidden">
         <div class="auth-content">
-          <p class="auth-instruction">Approve code on GitHub:</p>
-          <div class="code-box">
-            <span id="userCodeDisplay" class="user-code">----</span>
-          </div>
-          <div class="auth-btn-row">
-            <button id="copyCodeBtn" class="btn-secondary" type="button">Copy</button>
-            <button id="openVerifyBtn" class="btn-highlight" type="button">Open GitHub</button>
-          </div>
-          <button id="checkAuthBtn" class="btn-primary full-width" type="button">I've Approved</button>
-          <button id="cancelAuthBtn" class="btn-link" type="button">Cancel</button>
+          <div class="auth-spinner"></div>
+          <p class="auth-instruction">Authorizing with GitHub in browser...</p>
+          <p class="text-xs" style="color:var(--text-muted); margin-bottom:6px;">Approve AceLC in your browser window to complete connection.</p>
+          <button id="cancelAuthBtn" class="btn-secondary btn-sm" type="button">Cancel</button>
         </div>
       </section>
 
