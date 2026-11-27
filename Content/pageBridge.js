@@ -187,13 +187,17 @@
 
     const subIdStr = String(submissionId);
 
-    // If active submissions are being tracked, ignore any judging check for Run Code (interpret tasks)
-    if (activeSubmittedIds.size > 0 && !activeSubmittedIds.has(subIdStr)) {
-      return;
-    }
-
-    // Ignore if this is explicitly a Run Code interpret response
-    if (data.interpret_id || data.interpret_status_code || data.test_case) {
+    // Filter out Run Code (interpret) tasks:
+    // Interpret tasks contain interpret_id, interpret_status_code, expected_output, or code_output.
+    const isInterpretRun = Boolean(
+      data.interpret_id ||
+      data.interpret_status_code ||
+      data.expected_output !== undefined ||
+      data.code_output !== undefined ||
+      subIdStr.startsWith('mysubmission_') ||
+      subIdStr.startsWith('interpret_')
+    );
+    if (isInterpretRun) {
       return;
     }
 
@@ -218,7 +222,6 @@
       (state === 'SUCCESS' && runSuccess && statusMsg.toLowerCase() === 'accepted');
 
     if (isAccepted) {
-      // Remove from active tracking once processed
       activeSubmittedIds.delete(subIdStr);
 
       let runtime = data.status_runtime || data.runtimeDisplay || data.runtime_display || null;

@@ -681,9 +681,6 @@
   // 3. SUBMISSION TRIGGER LISTENER (BUTTON CLICK & KEYBOARD SHORTCUT)
   // =========================================================================
 
-  // Flag indicating a verified user Submit action was triggered (not Run Code)
-  let isExplicitSubmitTriggered = false;
-
   /**
    * Check if a DOM element is the Submit button
    * @param {Element} element 
@@ -694,15 +691,18 @@
     const btn = element.closest('button, [role="button"]');
     if (!btn) return false;
 
-    // Check visible text - MUST BE Submit, and NOT Run
-    const text = (btn.textContent || '').trim().toLowerCase();
-    if (text.includes('run') || text.includes('test')) return false;
-
     // Check data attributes
     if (btn.getAttribute('data-e2e-locator') === 'console-submit-button') return true;
     if (btn.getAttribute('data-cypress') === 'submit-code-btn') return true;
+    if (btn.getAttribute('data-cy') === 'submit-code-btn') return true;
 
-    if (text === 'submit' || text.startsWith('submit')) return true;
+    // Check visible text - MUST BE Submit, and NOT Run
+    const text = (btn.textContent || '').trim().toLowerCase();
+    if (text.includes('run')) return false;
+    if (text === 'submit' || text.startsWith('submit') || text.includes('submit')) return true;
+
+    const title = (btn.getAttribute('title') || btn.getAttribute('aria-label') || '').toLowerCase();
+    if (title.includes('submit')) return true;
 
     return false;
   }
@@ -717,9 +717,12 @@
     const btn = element.closest('button, [role="button"]');
     if (!btn) return false;
 
-    const text = (btn.textContent || '').trim().toLowerCase();
-    if (text === 'run' || text.startsWith('run') || text.includes('run code') || text.includes('testcase')) return true;
     if (btn.getAttribute('data-e2e-locator') === 'console-run-button') return true;
+    if (btn.getAttribute('data-cypress') === 'run-code-btn') return true;
+
+    const text = (btn.textContent || '').trim().toLowerCase();
+    if (text === 'run' || text === 'run code') return true;
+
     return false;
   }
 
@@ -730,8 +733,7 @@
     const slug = getCurrentProblemSlug();
     if (!slug) return;
 
-    isExplicitSubmitTriggered = true;
-    console.log('[AceLC Content] Submission action triggered by user on problem:', slug);
+    console.log('[AceLC Content] Submission action triggered on problem:', slug);
 
     // Snapshot immediately at submission time
     activeSubmissionSnapshot = await captureSubmissionSnapshot();
@@ -745,25 +747,16 @@
     if (isSubmitButton(event.target)) {
       onSubmissionTriggered();
     } else if (isRunButton(event.target)) {
-      // Explicitly ignore Run button clicks
-      console.log('[AceLC Content] Run Code clicked by user. Modal will NOT be shown.');
-      isExplicitSubmitTriggered = false;
+      console.log('[AceLC Content] Run Code clicked. Modal will NOT be shown.');
       activeSubmissionSnapshot = null;
       stopResultObserver();
     }
   }, true);
 
-  // Keyboard shortcut listener: LeetCode Submit is Ctrl+Alt+Enter or Cmd+Alt+Enter.
-  // Note: Plain Ctrl+Enter is "Run Code" in LeetCode, so we explicitly do NOT trigger on plain Ctrl+Enter.
+  // Keyboard shortcut listener: Ctrl+Enter / Cmd+Enter or Ctrl+Alt+Enter
   document.addEventListener('keydown', (event) => {
-    if ((event.ctrlKey || event.metaKey) && event.altKey && event.key === 'Enter') {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
       onSubmissionTriggered();
-    } else if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key === 'Enter') {
-      // Plain Ctrl+Enter: Run Code shortcut in LeetCode
-      console.log('[AceLC Content] Run Code shortcut pressed. Modal will NOT be shown.');
-      isExplicitSubmitTriggered = false;
-      activeSubmissionSnapshot = null;
-      stopResultObserver();
     }
   }, true);
 
@@ -875,12 +868,11 @@
    * Inspect DOM for Accepted submission indicator
    */
   function inspectDOMForSubmissionResult() {
-    if (!activeSubmissionSnapshot || !isExplicitSubmitTriggered) return;
+    if (!activeSubmissionSnapshot) return;
 
     // Do not process if submission is older than 90 seconds
     if (Date.now() - activeSubmissionSnapshot.timestamp > 90000) {
       activeSubmissionSnapshot = null;
-      isExplicitSubmitTriggered = false;
       stopResultObserver();
       return;
     }
@@ -899,7 +891,7 @@
       if (text.toLowerCase() === 'accepted') {
         // Debounce slightly to allow network interception to deliver official metrics first
         setTimeout(() => {
-          if (!activeSubmissionSnapshot || !isExplicitSubmitTriggered) return;
+          if (!activeSubmissionSnapshot) return;
           const domMetrics = extractMetricsFromDOM();
 
           let submissionId = activeSubmissionSnapshot.submissionId;
@@ -929,7 +921,6 @@
         if (text.toLowerCase().includes(kw)) {
           console.log(`[AceLC Content] DOM result showed "${text}". (Ignored - Not Accepted)`);
           activeSubmissionSnapshot = null;
-          isExplicitSubmitTriggered = false;
           stopResultObserver();
           return;
         }
@@ -971,12 +962,6 @@
    * @param {object} resultDetails 
    */
   async function processAcceptedSubmission(resultDetails) {
-    if (!isExplicitSubmitTriggered) {
-      console.log('[AceLC Content] Ignoring accepted event: not triggered by an explicit Submit action.');
-      return;
-    }
-    isExplicitSubmitTriggered = false;
-
     let snapshot = activeSubmissionSnapshot;
 
     // If snapshot was missing, attempt immediate capture
