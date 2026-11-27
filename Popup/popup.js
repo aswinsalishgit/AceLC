@@ -32,15 +32,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const authErrorMessage = document.getElementById('authErrorMessage');
   const feedbackToast = document.getElementById('feedbackToast');
 
-  const LEETCODE_PROFILE_URL = 'https://leetcode.com/u/Aswin_Salish/';
-
   function openProfileTab(e) {
     if (e) e.preventDefault();
-    const targetUrl = (e && e.currentTarget && e.currentTarget.id === 'userNameLink')
-      ? LEETCODE_PROFILE_URL
-      : ((e && e.currentTarget && e.currentTarget.href && e.currentTarget.href !== '#' && !e.currentTarget.href.endsWith('#'))
-        ? e.currentTarget.href
-        : (userHandle && userHandle.href));
+    const targetUrl = (e && e.currentTarget && e.currentTarget.href && e.currentTarget.href !== '#' && !e.currentTarget.href.endsWith('#'))
+      ? e.currentTarget.href
+      : (userHandle && userHandle.href);
     if (targetUrl && targetUrl !== '#' && !targetUrl.endsWith('#')) {
       if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.create) {
         chrome.tabs.create({ url: targetUrl });
@@ -207,10 +203,13 @@ document.addEventListener('DOMContentLoaded', () => {
     userHandle.textContent = `@${user.login}`;
     userHandle.href = profileUrl;
 
-    if (userAvatarLink) userAvatarLink.href = profileUrl;
+    if (userAvatarLink) {
+      userAvatarLink.href = profileUrl;
+      userAvatarLink.title = 'Open GitHub Profile';
+    }
     if (userNameLink) {
-      userNameLink.href = LEETCODE_PROFILE_URL;
-      userNameLink.title = 'Open LeetCode Profile';
+      userNameLink.href = profileUrl;
+      userNameLink.title = 'Open GitHub Profile';
     }
 
     if (user.avatarUrl) {
@@ -826,14 +825,16 @@ document.addEventListener('DOMContentLoaded', () => {
     destLanguageBadge.textContent = (item.language || 'Java') + diffDisplay;
 
     if (item.runtime) {
-      destRuntimeBadge.textContent = `⚡ ${item.runtime}`;
+      const cleanRuntime = String(item.runtime).replace(/beats/gi, '').trim();
+      destRuntimeBadge.textContent = `⚡ ${cleanRuntime}`;
       destRuntimeBadge.classList.remove('hidden');
     } else {
       destRuntimeBadge.classList.add('hidden');
     }
 
     if (item.memory) {
-      destMemoryBadge.textContent = `💾 ${item.memory}`;
+      const cleanMemory = String(item.memory).replace(/beats/gi, '').trim();
+      destMemoryBadge.textContent = `💾 ${cleanMemory}`;
       destMemoryBadge.classList.remove('hidden');
     } else {
       destMemoryBadge.classList.add('hidden');

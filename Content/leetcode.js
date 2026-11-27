@@ -1482,8 +1482,8 @@
   }
 
   /**
-   * Retrieve the exact submit icon SVG matching LeetCode's native Submit button
-   * Clones directly from LeetCode's DOM if present, with a precise vector fallback.
+   * Retrieve the exact submit icon SVG matching LeetCode's native Submit button.
+   * Uses Heroicons outline cloud-arrow-up (or clones directly from LeetCode DOM if available).
    * @returns {string} SVG HTML string
    */
   function getLeetCodeSubmitIconSvg() {
@@ -1495,21 +1495,25 @@
           const clone = svg.cloneNode(true);
           clone.setAttribute('width', '16');
           clone.setAttribute('height', '16');
-          clone.style.stroke = '#2cbb5d';
-          clone.style.color = '#2cbb5d';
-          clone.style.fill = 'none';
+          clone.removeAttribute('class');
+          clone.style.width = '16px';
+          clone.style.height = '16px';
           clone.style.display = 'inline-block';
           clone.style.verticalAlign = 'middle';
+          clone.style.color = '#2cbb5d';
+          const paths = clone.querySelectorAll('path');
+          paths.forEach(p => {
+            if (p.getAttribute('stroke')) p.setAttribute('stroke', '#2cbb5d');
+            if (p.getAttribute('fill') && p.getAttribute('fill') !== 'none') p.setAttribute('fill', '#2cbb5d');
+          });
           return clone.outerHTML;
         }
       }
     } catch (e) {}
 
-    // Precise fallback vector replicating LeetCode's native cloud upload icon
-    return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2cbb5d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M6 18h12a4 4 0 0 0 1-7.87 5.5 5.5 0 0 0-10.7-1.4A4 4 0 0 0 6 18z"/>
-      <path d="M12 16V10"/>
-      <path d="m9.5 12.5 2.5-2.5 2.5 2.5"/>
+    // Exact Heroicons outline cloud-arrow-up used by LeetCode's native Submit button
+    return `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="#2cbb5d" width="16" height="16" style="width:16px;height:16px;display:inline-block;vertical-align:middle;">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0 3 3m-3-3-3 3M6.75 19.5a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z" />
     </svg>`;
   }
 
@@ -1604,15 +1608,26 @@
 
     function formatMetricWithPercentile(value, percentile) {
       if (!value) return null;
-      let valStr = String(value).replace(/beats\s*/gi, '').trim();
+      let valStr = String(value)
+        .replace(/\|\s*beats\s*[\d.]+\s*%/gi, '')
+        .replace(/\(?\s*beats\s*[\d.]+\s*%\s*\)?/gi, '')
+        .replace(/beats/gi, '')
+        .replace(/\|/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      let pct = null;
       if (percentile !== null && percentile !== undefined && String(percentile).trim().length > 0) {
-        let cleanPct = String(percentile).replace(/beats\s*/gi, '').replace('%', '').trim();
-        const num = parseFloat(cleanPct);
+        const rawPct = String(percentile).replace(/beats/gi, '').replace('%', '').trim();
+        const num = parseFloat(rawPct);
         if (!isNaN(num) && num > 0) {
-          if (!valStr.includes('%')) {
-            return `${valStr} (${num.toFixed(1)}%)`;
-          }
+          pct = num;
         }
+      }
+
+      if (pct !== null) {
+        valStr = valStr.replace(/\(?\s*[\d.]+\s*%\s*\)?/g, '').trim();
+        return `${valStr} (${pct.toFixed(1)}%)`;
       }
       return valStr;
     }
