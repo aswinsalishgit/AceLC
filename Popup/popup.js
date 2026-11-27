@@ -32,12 +32,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const authErrorMessage = document.getElementById('authErrorMessage');
   const feedbackToast = document.getElementById('feedbackToast');
 
-  const LINKEDIN_PROFILE_URL = 'https://www.linkedin.com/in/aswinsalish/';
+  const LEETCODE_PROFILE_URL = 'https://leetcode.com/u/Aswin_Salish/';
 
   function openProfileTab(e) {
     if (e) e.preventDefault();
     const targetUrl = (e && e.currentTarget && e.currentTarget.id === 'userNameLink')
-      ? LINKEDIN_PROFILE_URL
+      ? LEETCODE_PROFILE_URL
       : ((e && e.currentTarget && e.currentTarget.href && e.currentTarget.href !== '#' && !e.currentTarget.href.endsWith('#'))
         ? e.currentTarget.href
         : (userHandle && userHandle.href));
@@ -208,7 +208,10 @@ document.addEventListener('DOMContentLoaded', () => {
     userHandle.href = profileUrl;
 
     if (userAvatarLink) userAvatarLink.href = profileUrl;
-    if (userNameLink) userNameLink.href = LINKEDIN_PROFILE_URL;
+    if (userNameLink) {
+      userNameLink.href = LEETCODE_PROFILE_URL;
+      userNameLink.title = 'Open LeetCode Profile';
+    }
 
     if (user.avatarUrl) {
       userAvatar.src = user.avatarUrl;
