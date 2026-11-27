@@ -5,7 +5,8 @@
   "description": "Sync accepted LeetCode solutions directly to your GitHub repositories.",
   "permissions": [
     "storage",
-    "identity"
+    "identity",
+    "tabs"
   ],
   "host_permissions": [
     "https://github.com/*",

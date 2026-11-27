@@ -116,7 +116,7 @@ const AceConstants = Object.freeze({
   // GitHub OAuth & REST API configuration
   GITHUB: {
     DEFAULT_CLIENT_ID: 'Ov23lihssxcizgbYQybu', // Default OAuth App Client ID
-    DEFAULT_CLIENT_SECRET: '',
+    DEFAULT_CLIENT_SECRET: 'f8cd3012a9c03a2dedcbca26ea154863d2aa3870', // Default OAuth App Client Secret
     AUTHORIZE_URL: 'https://github.com/login/oauth/authorize',
     DEVICE_CODE_URL: 'https://github.com/login/device/code',
     TOKEN_URL: 'https://github.com/login/oauth/access_token',
@@ -124,6 +124,7 @@ const AceConstants = Object.freeze({
     USER_REPOS_URL: 'https://api.github.com/user/repos',
     REPOS_API_URL: 'https://api.github.com/repos',
     SCOPES: 'repo',
+    REDIRECT_URI: 'https://github.com/',
     VERIFICATION_URL: 'https://github.com/login/device'
   },
 
