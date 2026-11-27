@@ -1566,16 +1566,20 @@
     badgeRow.appendChild(statusTag);
     badgeRow.appendChild(diffTag);
 
-    function formatMetricWithBeats(value, percentile) {
+    function formatMetricWithPercentile(value, percentile) {
       if (!value) return null;
-      let valStr = String(value).trim();
+      let valStr = String(value)
+        .replace(/\|\s*beats\s*[\d.]+\s*%/i, '')
+        .replace(/beats\s*[\d.]+\s*%/i, '')
+        .replace(/\(beats\s*[\d.]+\s*%\)/i, '')
+        .replace(/beats/i, '')
+        .trim();
+
       if (percentile !== null && percentile !== undefined && String(percentile).trim().length > 0) {
         let cleanPct = String(percentile).replace(/beats\s*/i, '').replace('%', '').trim();
         const num = parseFloat(cleanPct);
         if (!isNaN(num) && num > 0) {
-          if (!valStr.toLowerCase().includes('beats') && !valStr.includes('%')) {
-            return `${valStr} (Beats ${num.toFixed(1)}%)`;
-          }
+          return `${valStr} (${num.toFixed(1)}%)`;
         }
       }
       return valStr;
@@ -1584,14 +1588,14 @@
     if (submission.runtime) {
       const runtimeTag = document.createElement('span');
       runtimeTag.className = 'acelc-tag';
-      runtimeTag.textContent = formatMetricWithBeats(submission.runtime, submission.runtimePercentile);
+      runtimeTag.textContent = formatMetricWithPercentile(submission.runtime, submission.runtimePercentile);
       badgeRow.appendChild(runtimeTag);
     }
 
     if (submission.memory) {
       const memoryTag = document.createElement('span');
       memoryTag.className = 'acelc-tag';
-      memoryTag.textContent = formatMetricWithBeats(submission.memory, submission.memoryPercentile);
+      memoryTag.textContent = formatMetricWithPercentile(submission.memory, submission.memoryPercentile);
       badgeRow.appendChild(memoryTag);
     }
 
@@ -1747,16 +1751,28 @@
     const actionsRow = document.createElement('div');
     actionsRow.className = 'acelc-actions-row';
 
+    // Helper to get the exact LeetCode Submit button icon
+    function getLeetCodeSubmitIconSvg() {
+      try {
+        const liveBtnSvg = document.querySelector('[data-e2e-locator="console-submit-button"] svg, [data-cypress="submit-code-btn"] svg, [data-cy="submit-code-btn"] svg');
+        if (liveBtnSvg && liveBtnSvg.innerHTML.trim().length > 0) {
+          const viewBox = liveBtnSvg.getAttribute('viewBox') || '0 0 24 24';
+          const inner = liveBtnSvg.innerHTML;
+          return `<svg width="16" height="16" viewBox="${viewBox}" fill="none" stroke="#2cbb5d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+        }
+      } catch (e) {}
+
+      return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2cbb5d" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0 3 3m-3-3-3 3M6.75 19.5a4.5 4.5 0 0 1-1.41-8.775 5.25 5.25 0 0 1 10.233-2.33 3 3 0 0 1 3.758 3.848A3.752 3.752 0 0 1 18 19.5H6.75Z" />
+      </svg>`;
+    }
+
     const confirmBtn = document.createElement('button');
     confirmBtn.className = 'acelc-btn-push';
     confirmBtn.type = 'button';
     confirmBtn.title = 'Push solution to GitHub';
     confirmBtn.innerHTML = `
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2cbb5d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>
-        <path d="M12 13V7"></path>
-        <path d="m9 10 3-3 3 3"></path>
-      </svg>
+      ${getLeetCodeSubmitIconSvg()}
       <span>Push</span>
     `;
 
@@ -1787,11 +1803,7 @@
       confirmBtn.disabled = true;
       cancelBtn.disabled = true;
       confirmBtn.innerHTML = `
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2cbb5d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>
-          <path d="M12 13V7"></path>
-          <path d="m9 10 3-3 3 3"></path>
-        </svg>
+        ${getLeetCodeSubmitIconSvg()}
         <span>Pushing...</span>
       `;
 
@@ -1807,11 +1819,7 @@
           if (response && response.success) {
             // Phase 7: Trigger upload immediately after confirmation
             confirmBtn.innerHTML = `
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2cbb5d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>
-                <path d="M12 13V7"></path>
-                <path d="m9 10 3-3 3 3"></path>
-              </svg>
+              ${getLeetCodeSubmitIconSvg()}
               <span>Pushing...</span>
             `;
             triggerModalUpload(response.confirmedSubmission, modal, overlay, {});
@@ -1819,11 +1827,7 @@
             confirmBtn.disabled = false;
             cancelBtn.disabled = false;
             confirmBtn.innerHTML = `
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2cbb5d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path>
-                <path d="M12 13V7"></path>
-                <path d="m9 10 3-3 3 3"></path>
-              </svg>
+              ${getLeetCodeSubmitIconSvg()}
               <span>Push</span>
             `;
             validationError.textContent = (response && response.error) || 'Failed to confirm destination selection.';
