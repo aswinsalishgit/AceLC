@@ -1234,44 +1234,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (connectBtn) {
     connectBtn.addEventListener('click', async () => {
-      const customClientId = clientIdInput ? clientIdInput.value.trim() : '';
-
-      if (customClientId) {
-        await chrome.storage.local.set({
-          [AceConstants.STORAGE_KEYS.CLIENT_ID]: customClientId
-        });
-      }
-
       connectBtn.disabled = true;
       connectBtn.textContent = 'Connecting...';
       setViewState(AceConstants.AUTH_STATUS.WAITING_FOR_AUTH);
 
-      chrome.runtime.sendMessage(
-        {
-          action: AceConstants.MESSAGES.START_AUTH,
-          clientId: customClientId
-        },
-        (response) => {
+      // Generate cryptographically random state parameter
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      const state = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+
+      const clientId = AceConstants.GITHUB.DEFAULT_CLIENT_ID;
+      const redirectUri = AceConstants.GITHUB.REDIRECT_URI || 'https://github.com/';
+      const authUrl = `${AceConstants.GITHUB.AUTHORIZE_URL}?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${AceConstants.GITHUB.SCOPES}&state=${state}`;
+
+      // Notify background to save pending auth state
+      chrome.runtime.sendMessage({
+        action: AceConstants.MESSAGES.START_AUTH,
+        state: state
+      });
+
+      // Directly open the GitHub authorization tab in the active browser window
+      chrome.tabs.create({ url: authUrl, active: true }, (tab) => {
+        if (chrome.runtime.lastError || !tab) {
+          showToast('Failed to open GitHub authorization tab.', true);
+          setViewState(AceConstants.AUTH_STATUS.NOT_CONNECTED);
           connectBtn.disabled = false;
           connectBtn.textContent = 'Connect +';
-
-          if (chrome.runtime.lastError || !response || !response.success) {
-            if (response && response.cancelled) {
-              setViewState(AceConstants.AUTH_STATUS.NOT_CONNECTED);
-              showToast('Authorization cancelled.');
-              return;
-            }
-            const errorMsg = (response && response.error) || 'Failed to complete authorization.';
-            renderAuthFailed(errorMsg);
-            return;
-          }
-
-          if (response.user) {
-            renderConnected(response.user);
-            showToast('Successfully authenticated!');
-          }
         }
-      );
+      });
     });
   }
 

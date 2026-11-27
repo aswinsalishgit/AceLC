@@ -202,54 +202,96 @@ function validateFolderPath(path) {
   return null;
 }
 
-let activeOAuthWindowId = null;
-let activeOAuthTabId = null;
-let activeOAuthListener = null;
+let isExchangingOAuthCode = false;
 
-// Reset auth state if user manually closes the authorization window
-if (typeof chrome !== 'undefined' && chrome.windows && chrome.windows.onRemoved) {
-  chrome.windows.onRemoved.addListener((windowId) => {
-    if (windowId === activeOAuthWindowId) {
-      activeOAuthWindowId = null;
-      if (activeOAuthListener) {
-        try { chrome.tabs.onUpdated.removeListener(activeOAuthListener); } catch (_) {}
-        activeOAuthListener = null;
+/**
+ * Handle received OAuth code from content script or tab update listener
+ */
+async function handleOAuthCodeReceived(code, returnedState, tabId) {
+  if (isExchangingOAuthCode) {
+    if (tabId) {
+      try { await chrome.tabs.remove(tabId); } catch (_) {}
+    }
+    return { success: true };
+  }
+
+  isExchangingOAuthCode = true;
+
+  if (tabId) {
+    try { await chrome.tabs.remove(tabId); } catch (_) {}
+  }
+
+  try {
+    const result = await chrome.storage.local.get(AceConstants.STORAGE_KEYS.AUTH_STATE);
+    const authState = result[AceConstants.STORAGE_KEYS.AUTH_STATE] || {};
+
+    if (authState.state && returnedState && authState.state !== returnedState) {
+      console.warn('[AceLC Background] State parameter mismatch in OAuth callback.');
+    }
+
+    const clientId = (AceConstants.GITHUB.DEFAULT_CLIENT_ID || '').trim();
+    const clientSecret = (AceConstants.GITHUB.DEFAULT_CLIENT_SECRET || '').trim();
+    const redirectUri = (AceConstants.GITHUB.REDIRECT_URI || 'https://github.com/').trim();
+
+    console.log('[AceLC Background] Exchanging OAuth authorization code for GitHub access token...');
+    const exchangeResult = await exchangeOAuthCodeForToken(code, clientId, clientSecret, redirectUri);
+    isExchangingOAuthCode = false;
+    return exchangeResult;
+  } catch (err) {
+    isExchangingOAuthCode = false;
+    console.error('[AceLC Background] Error during code exchange:', err);
+    await chrome.storage.local.set({
+      [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
+        status: AceConstants.AUTH_STATUS.FAILED,
+        error: err.message || 'Failed to exchange authorization code.'
       }
-      chrome.storage.local.get(AceConstants.STORAGE_KEYS.AUTH_TOKEN, (res) => {
-        if (!res[AceConstants.STORAGE_KEYS.AUTH_TOKEN]) {
-          chrome.storage.local.set({
-            [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
-              status: AceConstants.AUTH_STATUS.NOT_CONNECTED
-            }
-          });
+    });
+    return { success: false, error: err.message };
+  }
+}
+
+// Global tab listener to catch OAuth redirect immediately when user authorizes
+if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.onUpdated) {
+  chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    const url = changeInfo.url || (tab && tab.url);
+    if (!url) return;
+
+    if (url.includes('github.com') && url.includes('code=')) {
+      try {
+        const urlObj = new URL(url);
+        const code = urlObj.searchParams.get('code');
+        const state = urlObj.searchParams.get('state');
+
+        if (code) {
+          console.log('[AceLC Background] OAuth redirect intercepted via tabs.onUpdated:', url);
+          await handleOAuthCodeReceived(code, state, tabId);
         }
-      });
+      } catch (err) {
+        console.warn('[AceLC Background] Error parsing redirect URL:', err);
+      }
+    } else if (url.includes('github.com') && url.includes('error=')) {
+      try {
+        const urlObj = new URL(url);
+        const errorMsg = urlObj.searchParams.get('error_description') || urlObj.searchParams.get('error');
+        try { await chrome.tabs.remove(tabId); } catch (_) {}
+        await chrome.storage.local.set({
+          [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
+            status: AceConstants.AUTH_STATUS.FAILED,
+            error: errorMsg || 'Authorization was denied on GitHub.'
+          }
+        });
+      } catch (_) {}
     }
   });
 }
 
 /**
- * Start GitHub OAuth Web Flow with browser-based redirect popup
+ * Start or prepare GitHub OAuth Web Flow
  */
-async function startOAuthWebFlow() {
+async function startOAuthWebFlow(requestedState) {
+  const state = requestedState || generateOAuthState();
   const clientId = (AceConstants.GITHUB.DEFAULT_CLIENT_ID || '').trim();
-  const clientSecret = (AceConstants.GITHUB.DEFAULT_CLIENT_SECRET || '').trim();
   const redirectUri = (AceConstants.GITHUB.REDIRECT_URI || 'https://github.com/').trim();
-
-  if (!clientId || !clientSecret) {
-    return {
-      success: false,
-      error: 'GitHub OAuth credentials are not properly configured.'
-    };
-  }
-
-  const state = generateOAuthState();
-
-  const authUrl = new URL(AceConstants.GITHUB.AUTHORIZE_URL);
-  authUrl.searchParams.set('client_id', clientId);
-  authUrl.searchParams.set('redirect_uri', redirectUri);
-  authUrl.searchParams.set('scope', AceConstants.GITHUB.SCOPES);
-  authUrl.searchParams.set('state', state);
 
   await chrome.storage.local.set({
     [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
@@ -260,118 +302,9 @@ async function startOAuthWebFlow() {
     }
   });
 
-  // Remove any stale listener
-  if (activeOAuthListener) {
-    try {
-      chrome.tabs.onUpdated.removeListener(activeOAuthListener);
-    } catch (_) {}
-    activeOAuthListener = null;
-  }
+  const authUrl = `${AceConstants.GITHUB.AUTHORIZE_URL}?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${AceConstants.GITHUB.SCOPES}&state=${state}`;
 
-  // Intercept the OAuth redirect with the authorization code
-  activeOAuthListener = async (tabId, changeInfo) => {
-    if (!changeInfo.url) return;
-
-    if (changeInfo.url.includes('github.com') && changeInfo.url.includes('code=')) {
-      try {
-        const urlObj = new URL(changeInfo.url);
-        const code = urlObj.searchParams.get('code');
-        const returnedState = urlObj.searchParams.get('state');
-
-        if (code) {
-          if (activeOAuthListener) {
-            chrome.tabs.onUpdated.removeListener(activeOAuthListener);
-            activeOAuthListener = null;
-          }
-
-          if (activeOAuthWindowId) {
-            try { await chrome.windows.remove(activeOAuthWindowId); } catch (_) {}
-            activeOAuthWindowId = null;
-          } else if (activeOAuthTabId) {
-            try { await chrome.tabs.remove(activeOAuthTabId); } catch (_) {}
-            activeOAuthTabId = null;
-          }
-
-          if (returnedState && returnedState !== state) {
-            console.error('[AceLC Background] State mismatch in OAuth response.');
-            await chrome.storage.local.set({
-              [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
-                status: AceConstants.AUTH_STATUS.FAILED,
-                error: 'State parameter mismatch. Authorization aborted for security.'
-              }
-            });
-            return;
-          }
-
-          console.log('[AceLC Background] OAuth authorization code received. Swapping for token...');
-          await exchangeOAuthCodeForToken(code, clientId, clientSecret, redirectUri);
-        }
-      } catch (err) {
-        console.error('[AceLC Background] Error processing OAuth callback URL:', err);
-      }
-    } else if (changeInfo.url.includes('github.com') && changeInfo.url.includes('error=')) {
-      if (activeOAuthListener) {
-        chrome.tabs.onUpdated.removeListener(activeOAuthListener);
-        activeOAuthListener = null;
-      }
-      if (activeOAuthWindowId) {
-        try { await chrome.windows.remove(activeOAuthWindowId); } catch (_) {}
-        activeOAuthWindowId = null;
-      }
-      try {
-        const urlObj = new URL(changeInfo.url);
-        const errorMsg = urlObj.searchParams.get('error_description') || urlObj.searchParams.get('error');
-        await chrome.storage.local.set({
-          [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
-            status: AceConstants.AUTH_STATUS.FAILED,
-            error: errorMsg || 'Authorization was cancelled on GitHub.'
-          }
-        });
-      } catch (_) {}
-    }
-  };
-
-  chrome.tabs.onUpdated.addListener(activeOAuthListener);
-
-  // Position popup window centrally
-  const width = 600;
-  const height = 750;
-  let left = 200;
-  let top = 100;
-  try {
-    const currentWin = await chrome.windows.getCurrent();
-    if (currentWin && currentWin.left !== undefined && currentWin.width) {
-      left = Math.round(currentWin.left + (currentWin.width - width) / 2);
-      top = Math.round(currentWin.top + (currentWin.height - height) / 2);
-    }
-  } catch (_) {}
-
-  chrome.windows.create(
-    {
-      url: authUrl.toString(),
-      type: 'popup',
-      width: width,
-      height: height,
-      left: Math.max(0, left),
-      top: Math.max(0, top),
-      focused: true
-    },
-    (win) => {
-      if (chrome.runtime.lastError || !win) {
-        console.warn('[AceLC Background] windows.create failed, falling back to tab:', chrome.runtime.lastError);
-        chrome.tabs.create({ url: authUrl.toString(), active: true }, (tab) => {
-          activeOAuthTabId = tab.id;
-        });
-      } else {
-        activeOAuthWindowId = win.id;
-        if (win.tabs && win.tabs[0]) {
-          activeOAuthTabId = win.tabs[0].id;
-        }
-      }
-    }
-  );
-
-  return { success: true, pending: true };
+  return { success: true, pending: true, authUrl: authUrl };
 }
 
 /**
@@ -429,24 +362,6 @@ async function exchangeOAuthCodeForToken(code, clientId, clientSecret, redirectU
  * Cancel any ongoing OAuth flow
  */
 async function cancelAuthFlow() {
-  if (activeOAuthListener) {
-    try {
-      chrome.tabs.onUpdated.removeListener(activeOAuthListener);
-    } catch (_) {}
-    activeOAuthListener = null;
-  }
-  if (activeOAuthWindowId) {
-    try {
-      await chrome.windows.remove(activeOAuthWindowId);
-    } catch (_) {}
-    activeOAuthWindowId = null;
-  }
-  if (activeOAuthTabId) {
-    try {
-      await chrome.tabs.remove(activeOAuthTabId);
-    } catch (_) {}
-    activeOAuthTabId = null;
-  }
   await chrome.storage.local.set({
     [AceConstants.STORAGE_KEYS.AUTH_STATE]: {
       status: AceConstants.AUTH_STATUS.NOT_CONNECTED
@@ -2389,7 +2304,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // Authentication actions
   if (message.action === AceConstants.MESSAGES.START_AUTH) {
-    startOAuthWebFlow(message.clientId).then(sendResponse);
+    startOAuthWebFlow(message.state).then(sendResponse);
+    return true;
+  }
+
+  if (message.action === AceConstants.MESSAGES.GITHUB_AUTH_CODE) {
+    handleOAuthCodeReceived(message.code, message.state, sender ? sender.tab : null).then(sendResponse);
     return true;
   }
 

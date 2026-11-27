@@ -39,6 +39,16 @@
   "content_scripts": [
     {
       "matches": [
+        "https://github.com/*"
+      ],
+      "js": [
+        "Shared/constants.js",
+        "Content/githubAuthBridge.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
         "https://leetcode.com/problems/*"
       ],
       "js": [
