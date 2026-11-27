@@ -71,7 +71,9 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "Content/pageBridge.js"
+        "Content/pageBridge.js",
+        "Popup/icon.png",
+        "icon.png"
       ],
       "matches": [
         "https://leetcode.com/*"

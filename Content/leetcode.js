@@ -1182,6 +1182,14 @@
         align-items: center;
         gap: 8px;
       }
+      .acelc-brand-icon {
+        width: 20px;
+        height: 20px;
+        object-fit: contain;
+        display: inline-block;
+        vertical-align: middle;
+        flex-shrink: 0;
+      }
       .acelc-brand-badge {
         background: #373737;
         color: #ffa116;
@@ -1518,6 +1526,28 @@
   }
 
   /**
+   * Create brand logo icon element using icon.png
+   * @returns {HTMLImageElement}
+   */
+  function createBrandIcon() {
+    const icon = document.createElement('img');
+    icon.className = 'acelc-brand-icon';
+    try {
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL) {
+        icon.src = chrome.runtime.getURL('Popup/icon.png');
+      } else {
+        icon.src = 'icon.png';
+      }
+    } catch (e) {
+      icon.src = 'icon.png';
+    }
+    icon.alt = 'AceLC';
+    icon.width = 20;
+    icon.height = 20;
+    return icon;
+  }
+
+  /**
    * Display in-page destination selection modal for an accepted submission
    * @param {object} submission
    * @param {object} repository
@@ -1547,15 +1577,13 @@
     const brandRow = document.createElement('div');
     brandRow.className = 'acelc-brand-row';
 
-    const brandBadge = document.createElement('span');
-    brandBadge.className = 'acelc-brand-badge';
-    brandBadge.textContent = 'AceLC';
+    const brandIcon = createBrandIcon();
 
     const modalTitle = document.createElement('span');
     modalTitle.className = 'acelc-modal-title';
     modalTitle.textContent = 'Solution Accepted! 🎉';
 
-    brandRow.appendChild(brandBadge);
+    brandRow.appendChild(brandIcon);
     brandRow.appendChild(modalTitle);
 
     const closeBtn = document.createElement('button');
@@ -1938,14 +1966,15 @@
 
     const header = document.createElement('div');
     header.className = 'acelc-modal-header';
-    const brandBadge = document.createElement('span');
-    brandBadge.className = 'acelc-brand-badge';
-    brandBadge.textContent = 'AceLC';
+    const brandRow = document.createElement('div');
+    brandRow.className = 'acelc-brand-row';
+    const brandIcon = createBrandIcon();
     const title = document.createElement('span');
     title.className = 'acelc-modal-title';
     title.textContent = 'File Already Exists';
-    header.appendChild(brandBadge);
-    header.appendChild(title);
+    brandRow.appendChild(brandIcon);
+    brandRow.appendChild(title);
+    header.appendChild(brandRow);
     modal.appendChild(header);
 
     const intro = document.createElement('div');
@@ -2026,15 +2055,13 @@
     const brandRow = document.createElement('div');
     brandRow.className = 'acelc-brand-row';
 
-    const brandBadge = document.createElement('span');
-    brandBadge.className = 'acelc-brand-badge';
-    brandBadge.textContent = 'AceLC';
+    const brandIcon = createBrandIcon();
 
     const modalTitle = document.createElement('span');
     modalTitle.className = 'acelc-modal-title';
     modalTitle.textContent = hasSuccess ? 'Saved to GitHub! 🚀' : 'Upload Status';
 
-    brandRow.appendChild(brandBadge);
+    brandRow.appendChild(brandIcon);
     brandRow.appendChild(modalTitle);
 
     const closeBtn = document.createElement('button');
